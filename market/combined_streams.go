@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
+	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -32,6 +35,13 @@ func NewCombinedStreamsClient(batchSize int) *CombinedStreamsClient {
 func (c *CombinedStreamsClient) Connect() error {
 	dialer := websocket.Dialer{
 		HandshakeTimeout: 10 * time.Second,
+	}
+
+	// 使用代理获取组合流
+	proxyUrl := os.Getenv("NOFX_STREAM_PROXY")
+	if proxyUrl != "" {
+		u, _ := url.Parse(proxyUrl)
+		dialer.Proxy = http.ProxyURL(u)
 	}
 
 	// 组合流使用不同的端点
