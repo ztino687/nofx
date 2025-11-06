@@ -993,8 +993,30 @@ func (at *AutoTrader) executeUpdateStopLossWithRecord(decision *decision.Decisio
 		return fmt.Errorf("空单止损必须高于当前价格 (当前: %.2f, 新止损: %.2f)", marketData.CurrentPrice, decision.NewStopLoss)
 	}
 
-	// 取消旧的止损单（避免多个止损单共存）
-	if err := at.trader.CancelStopOrders(decision.Symbol); err != nil {
+	// ⚠️ 防御性检查：检测是否存在双向持仓（不应该出现，但提供保护）
+	var hasOppositePosition bool
+	oppositeSide := ""
+	for _, pos := range positions {
+		symbol, _ := pos["symbol"].(string)
+		posSide, _ := pos["side"].(string)
+		posAmt, _ := pos["positionAmt"].(float64)
+		if symbol == decision.Symbol && posAmt != 0 && strings.ToUpper(posSide) != positionSide {
+			hasOppositePosition = true
+			oppositeSide = strings.ToUpper(posSide)
+			break
+		}
+	}
+
+	if hasOppositePosition {
+		log.Printf("  🚨 警告：检测到 %s 存在双向持仓（%s + %s），这违反了策略规则",
+			decision.Symbol, positionSide, oppositeSide)
+		log.Printf("  🚨 取消止损单将影响两个方向的订单，请检查是否为用户手动操作导致")
+		log.Printf("  🚨 建议：手动平掉其中一个方向的持仓，或检查系统是否有BUG")
+	}
+
+	// 取消旧的止损单（只删除止损单，不影响止盈单）
+	// 注意：如果存在双向持仓，这会删除两个方向的止损单
+	if err := at.trader.CancelStopLossOrders(decision.Symbol); err != nil {
 		log.Printf("  ⚠ 取消旧止损单失败: %v", err)
 		// 不中断执行，继续设置新止损
 	}
@@ -1055,8 +1077,30 @@ func (at *AutoTrader) executeUpdateTakeProfitWithRecord(decision *decision.Decis
 		return fmt.Errorf("空单止盈必须低于当前价格 (当前: %.2f, 新止盈: %.2f)", marketData.CurrentPrice, decision.NewTakeProfit)
 	}
 
-	// 取消旧的止盈单（避免多个止盈单共存）
-	if err := at.trader.CancelStopOrders(decision.Symbol); err != nil {
+	// ⚠️ 防御性检查：检测是否存在双向持仓（不应该出现，但提供保护）
+	var hasOppositePosition bool
+	oppositeSide := ""
+	for _, pos := range positions {
+		symbol, _ := pos["symbol"].(string)
+		posSide, _ := pos["side"].(string)
+		posAmt, _ := pos["positionAmt"].(float64)
+		if symbol == decision.Symbol && posAmt != 0 && strings.ToUpper(posSide) != positionSide {
+			hasOppositePosition = true
+			oppositeSide = strings.ToUpper(posSide)
+			break
+		}
+	}
+
+	if hasOppositePosition {
+		log.Printf("  🚨 警告：检测到 %s 存在双向持仓（%s + %s），这违反了策略规则",
+			decision.Symbol, positionSide, oppositeSide)
+		log.Printf("  🚨 取消止盈单将影响两个方向的订单，请检查是否为用户手动操作导致")
+		log.Printf("  🚨 建议：手动平掉其中一个方向的持仓，或检查系统是否有BUG")
+	}
+
+	// 取消旧的止盈单（只删除止盈单，不影响止损单）
+	// 注意：如果存在双向持仓，这会删除两个方向的止盈单
+	if err := at.trader.CancelTakeProfitOrders(decision.Symbol); err != nil {
 		log.Printf("  ⚠ 取消旧止盈单失败: %v", err)
 		// 不中断执行，继续设置新止盈
 	}
