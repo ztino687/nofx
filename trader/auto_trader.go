@@ -177,7 +177,7 @@ func NewAutoTrader(config AutoTraderConfig, database interface{}, userID string)
 	switch config.Exchange {
 	case "binance":
 		log.Printf("🏦 [%s] 使用币安合约交易", config.Name)
-		trader = NewFuturesTrader(config.BinanceAPIKey, config.BinanceSecretKey, config.Testnet)
+		trader = NewFuturesTrader(config.BinanceAPIKey, config.BinanceSecretKey, config.Testnet, userID)
 	case "hyperliquid":
 		log.Printf("🏦 [%s] 使用Hyperliquid交易", config.Name)
 		trader, err = NewHyperliquidTrader(config.HyperliquidPrivateKey, config.HyperliquidWalletAddr, config.Testnet)
@@ -241,10 +241,15 @@ func NewAutoTrader(config AutoTraderConfig, database interface{}, userID string)
 // Run 运行自动交易主循环
 func (at *AutoTrader) Run() error {
 	at.isRunning = true
+	at.stopMonitorCh = make(chan struct{})
+	at.startTime = time.Now()
+
 	log.Println("🚀 AI驱动自动交易系统启动")
 	log.Printf("💰 初始余额: %.2f USDT", at.initialBalance)
 	log.Printf("⚙️  扫描间隔: %v", at.config.ScanInterval)
 	log.Println("🤖 AI将全权决定杠杆、仓位大小、止损止盈等参数")
+	at.monitorWg.Add(1)
+	defer at.monitorWg.Done()
 
 	// 启动回撤监控
 	at.startDrawdownMonitor()
@@ -263,6 +268,9 @@ func (at *AutoTrader) Run() error {
 			if err := at.runCycle(); err != nil {
 				log.Printf("❌ 执行失败: %v", err)
 			}
+		case <-at.stopMonitorCh:
+			log.Printf("[%s] ⏹ 收到停止信号，退出自动交易主循环", at.name)
+			return nil
 		}
 	}
 
@@ -271,6 +279,9 @@ func (at *AutoTrader) Run() error {
 
 // Stop 停止自动交易
 func (at *AutoTrader) Stop() {
+	if !at.isRunning {
+		return
+	}
 	at.isRunning = false
 	close(at.stopMonitorCh) // 通知监控goroutine停止
 	at.monitorWg.Wait()     // 等待监控goroutine结束
@@ -1555,18 +1566,21 @@ func (at *AutoTrader) checkPositionDrawdown() {
 			currentPnLPct = ((entryPrice - markPrice) / entryPrice) * float64(leverage) * 100
 		}
 
+		// 构造持仓唯一标识（区分多空）
+		posKey := symbol + "_" + side
+
 		// 获取该持仓的历史最高收益
 		at.peakPnLCacheMutex.RLock()
-		peakPnLPct, exists := at.peakPnLCache[symbol]
+		peakPnLPct, exists := at.peakPnLCache[posKey]
 		at.peakPnLCacheMutex.RUnlock()
 
 		if !exists {
 			// 如果没有历史最高记录，使用当前盈亏作为初始值
 			peakPnLPct = currentPnLPct
-			at.UpdatePeakPnL(symbol, currentPnLPct)
+			at.UpdatePeakPnL(symbol, side, currentPnLPct)
 		} else {
 			// 更新峰值缓存
-			at.UpdatePeakPnL(symbol, currentPnLPct)
+			at.UpdatePeakPnL(symbol, side, currentPnLPct)
 		}
 
 		// 计算回撤（从最高点下跌的幅度）
@@ -1585,8 +1599,8 @@ func (at *AutoTrader) checkPositionDrawdown() {
 				log.Printf("❌ 回撤平仓失败 (%s %s): %v", symbol, side, err)
 			} else {
 				log.Printf("✅ 回撤平仓成功: %s %s", symbol, side)
-				// 平仓后清理该symbol的缓存
-				at.ClearPeakPnLCache(symbol)
+				// 平仓后清理该持仓的缓存
+				at.ClearPeakPnLCache(symbol, side)
 			}
 		} else if currentPnLPct > 5.0 {
 			// 记录接近平仓条件的情况（用于调试）
@@ -1632,25 +1646,27 @@ func (at *AutoTrader) GetPeakPnLCache() map[string]float64 {
 }
 
 // UpdatePeakPnL 更新最高收益缓存
-func (at *AutoTrader) UpdatePeakPnL(symbol string, currentPnLPct float64) {
+func (at *AutoTrader) UpdatePeakPnL(symbol, side string, currentPnLPct float64) {
 	at.peakPnLCacheMutex.Lock()
 	defer at.peakPnLCacheMutex.Unlock()
 
-	if peak, exists := at.peakPnLCache[symbol]; exists {
+	posKey := symbol + "_" + side
+	if peak, exists := at.peakPnLCache[posKey]; exists {
 		// 更新峰值（如果是多头，取较大值；如果是空头，currentPnLPct为负，也要比较）
 		if currentPnLPct > peak {
-			at.peakPnLCache[symbol] = currentPnLPct
+			at.peakPnLCache[posKey] = currentPnLPct
 		}
 	} else {
 		// 首次记录
-		at.peakPnLCache[symbol] = currentPnLPct
+		at.peakPnLCache[posKey] = currentPnLPct
 	}
 }
 
-// ClearPeakPnLCache 清除指定symbol的峰值缓存
-func (at *AutoTrader) ClearPeakPnLCache(symbol string) {
+// ClearPeakPnLCache 清除指定持仓的峰值缓存
+func (at *AutoTrader) ClearPeakPnLCache(symbol, side string) {
 	at.peakPnLCacheMutex.Lock()
 	defer at.peakPnLCacheMutex.Unlock()
 
-	delete(at.peakPnLCache, symbol)
+	posKey := symbol + "_" + side
+	delete(at.peakPnLCache, posKey)
 }
