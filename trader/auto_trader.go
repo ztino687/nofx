@@ -23,7 +23,7 @@ type AutoTraderConfig struct {
 	AIModel string // AI模型: "qwen" 或 "deepseek"
 
 	// 交易平台选择
-	Exchange string // "binance", "hyperliquid", "aster" 或 "lighter"
+	Exchange string // "binance", "bybit", "hyperliquid", "aster" 或 "lighter"
 
 	// 测试网
 	Testnet bool
@@ -31,6 +31,10 @@ type AutoTraderConfig struct {
 	// 币安API配置
 	BinanceAPIKey    string
 	BinanceSecretKey string
+
+	// Bybit API配置
+	BybitAPIKey    string
+	BybitSecretKey string
 
 	// Hyperliquid配置
 	HyperliquidPrivateKey string
@@ -186,6 +190,9 @@ func NewAutoTrader(config AutoTraderConfig, database interface{}, userID string)
 	case "binance":
 		log.Printf("🏦 [%s] 使用币安合约交易", config.Name)
 		trader = NewFuturesTrader(config.BinanceAPIKey, config.BinanceSecretKey, config.Testnet, userID)
+	case "bybit":
+		log.Printf("🏦 [%s] 使用Bybit合约交易", config.Name)
+		trader = NewBybitTrader(config.BybitAPIKey, config.BybitSecretKey)
 	case "hyperliquid":
 		log.Printf("🏦 [%s] 使用Hyperliquid交易", config.Name)
 		trader, err = NewHyperliquidTrader(config.HyperliquidPrivateKey, config.HyperliquidWalletAddr, config.Testnet)
