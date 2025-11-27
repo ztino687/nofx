@@ -39,6 +39,7 @@ type AutoTraderConfig struct {
 	// Hyperliquid配置
 	HyperliquidPrivateKey string
 	HyperliquidWalletAddr string
+	HyperliquidTestnet    bool
 
 	// Aster配置
 	AsterUser       string // Aster主钱包地址
@@ -195,7 +196,7 @@ func NewAutoTrader(config AutoTraderConfig, database interface{}, userID string)
 		trader = NewBybitTrader(config.BybitAPIKey, config.BybitSecretKey)
 	case "hyperliquid":
 		log.Printf("🏦 [%s] 使用Hyperliquid交易", config.Name)
-		trader, err = NewHyperliquidTrader(config.HyperliquidPrivateKey, config.HyperliquidWalletAddr, config.Testnet)
+		trader, err = NewHyperliquidTrader(config.HyperliquidPrivateKey, config.HyperliquidWalletAddr, config.HyperliquidTestnet)
 		if err != nil {
 			return nil, fmt.Errorf("初始化Hyperliquid交易器失败: %w", err)
 		}
