@@ -11,13 +11,13 @@ import (
 // PositionSyncManager Position status synchronization manager
 // Responsible for periodically synchronizing exchange positions, detecting manual closures and other changes
 type PositionSyncManager struct {
-	store        *store.Store
-	interval     time.Duration
-	stopCh       chan struct{}
-	wg           sync.WaitGroup
-	traderCache  map[string]Trader                    // trader_id -> Trader instance cache
-	configCache  map[string]*store.TraderFullConfig   // trader_id -> config cache
-	cacheMutex   sync.RWMutex
+	store       *store.Store
+	interval    time.Duration
+	stopCh      chan struct{}
+	wg          sync.WaitGroup
+	traderCache map[string]Trader                  // trader_id -> Trader instance cache
+	configCache map[string]*store.TraderFullConfig // trader_id -> config cache
+	cacheMutex  sync.RWMutex
 }
 
 // NewPositionSyncManager Create position synchronization manager
@@ -176,7 +176,7 @@ func (m *PositionSyncManager) closeLocalPosition(pos *store.TraderPosition, trad
 		exitPrice,
 		"", // Manual close has no order ID
 		realizedPnL,
-		0,      // Manual close cannot get fee
+		0, // Manual close cannot get fee
 		reason,
 	)
 
@@ -263,7 +263,7 @@ func (m *PositionSyncManager) createTrader(config *store.TraderFullConfig) (Trad
 	// Use exchange.ID to determine specific exchange, not exchange.Type (cex/dex)
 	switch exchange.ID {
 	case "binance":
-		return NewFuturesTrader(exchange.APIKey, exchange.SecretKey, config.Trader.UserID), nil
+		return NewFuturesTrader(exchange.APIKey, exchange.SecretKey, exchange.Testnet, config.Trader.UserID), nil
 
 	case "bybit":
 		return NewBybitTrader(exchange.APIKey, exchange.SecretKey), nil
