@@ -30,10 +30,8 @@ import {
   Trash2,
   Plus,
   Users,
-  AlertTriangle,
   BookOpen,
   HelpCircle,
-  Radio,
   Pencil,
 } from 'lucide-react'
 import { confirmToast } from '../lib/notify'
@@ -71,7 +69,6 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
   const [showEditModal, setShowEditModal] = useState(false)
   const [showModelModal, setShowModelModal] = useState(false)
   const [showExchangeModal, setShowExchangeModal] = useState(false)
-  const [showSignalSourceModal, setShowSignalSourceModal] = useState(false)
   const [editingModel, setEditingModel] = useState<string | null>(null)
   const [editingExchange, setEditingExchange] = useState<string | null>(null)
   const [editingTrader, setEditingTrader] = useState<any>(null)
@@ -79,15 +76,8 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
   const [allExchanges, setAllExchanges] = useState<Exchange[]>([])
   const [supportedModels, setSupportedModels] = useState<AIModel[]>([])
   const [supportedExchanges, setSupportedExchanges] = useState<Exchange[]>([])
-  const [userSignalSource, setUserSignalSource] = useState<{
-    coinPoolUrl: string
-    oiTopUrl: string
-  }>({
-    coinPoolUrl: '',
-    oiTopUrl: '',
-  })
 
-  const { data: traders, mutate: mutateTraders } = useSWR<TraderInfo[]>(
+  const { data: traders, mutate: mutateTraders, isLoading: isTradersLoading } = useSWR<TraderInfo[]>(
     user && token ? 'traders' : null,
     api.getTraders,
     { refreshInterval: 5000 }
@@ -127,17 +117,6 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
         setAllExchanges(exchangeConfigs)
         setSupportedModels(supportedModels)
         setSupportedExchanges(supportedExchanges)
-
-        // 加载用户信号源配置
-        try {
-          const signalSource = await api.getUserSignalSource()
-          setUserSignalSource({
-            coinPoolUrl: signalSource.coin_pool_url || '',
-            oiTopUrl: signalSource.oi_top_url || '',
-          })
-        } catch (error) {
-          console.log('📡 用户信号源配置暂未设置')
-        }
       } catch (error) {
         console.error('Failed to load configs:', error)
       }
@@ -601,11 +580,15 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
     exchangeId: string,
     apiKey: string,
     secretKey?: string,
+    passphrase?: string,
     testnet?: boolean,
     hyperliquidWalletAddr?: string,
     asterUser?: string,
     asterSigner?: string,
-    asterPrivateKey?: string
+    asterPrivateKey?: string,
+    lighterWalletAddr?: string,
+    lighterPrivateKey?: string,
+    lighterApiKeyPrivateKey?: string
   ) => {
     try {
       // 找到要配置的交易所（从supportedExchanges中）
@@ -630,11 +613,15 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
                   ...e,
                   apiKey,
                   secretKey,
+                  passphrase,
                   testnet,
                   hyperliquidWalletAddr,
                   asterUser,
                   asterSigner,
                   asterPrivateKey,
+                  lighterWalletAddr,
+                  lighterPrivateKey,
+                  lighterApiKeyPrivateKey,
                   enabled: true,
                 }
               : e
@@ -645,11 +632,15 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
           ...exchangeToUpdate,
           apiKey,
           secretKey,
+          passphrase,
           testnet,
           hyperliquidWalletAddr,
           asterUser,
           asterSigner,
           asterPrivateKey,
+          lighterWalletAddr,
+          lighterPrivateKey,
+          lighterApiKeyPrivateKey,
           enabled: true,
         }
         updatedExchanges = [...(allExchanges || []), newExchange]
@@ -663,11 +654,15 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
               enabled: exchange.enabled,
               api_key: exchange.apiKey || '',
               secret_key: exchange.secretKey || '',
+              passphrase: exchange.passphrase || '',
               testnet: exchange.testnet || false,
               hyperliquid_wallet_addr: exchange.hyperliquidWalletAddr || '',
               aster_user: exchange.asterUser || '',
               aster_signer: exchange.asterSigner || '',
               aster_private_key: exchange.asterPrivateKey || '',
+              lighter_wallet_addr: exchange.lighterWalletAddr || '',
+              lighter_private_key: exchange.lighterPrivateKey || '',
+              lighter_api_key_private_key: exchange.lighterApiKeyPrivateKey || '',
             },
           ])
         ),
@@ -699,24 +694,6 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
   const handleAddExchange = () => {
     setEditingExchange(null)
     setShowExchangeModal(true)
-  }
-
-  const handleSaveSignalSource = async (
-    coinPoolUrl: string,
-    oiTopUrl: string
-  ) => {
-    try {
-      await toast.promise(api.saveUserSignalSource(coinPoolUrl, oiTopUrl), {
-        loading: '正在保存…',
-        success: '保存成功',
-        error: '保存失败',
-      })
-      setUserSignalSource({ coinPoolUrl, oiTopUrl })
-      setShowSignalSourceModal(false)
-    } catch (error) {
-      console.error('Failed to save signal source:', error)
-      toast.error(t('saveSignalSourceFailed', language))
-    }
   }
 
   return (
@@ -783,19 +760,6 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
           </button>
 
           <button
-            onClick={() => setShowSignalSourceModal(true)}
-            className="px-3 md:px-4 py-2 rounded text-xs md:text-sm font-semibold transition-all hover:scale-105 flex items-center gap-1 md:gap-2 whitespace-nowrap"
-            style={{
-              background: '#2B3139',
-              color: '#EAECEF',
-              border: '1px solid #474D57',
-            }}
-          >
-            <Radio className="w-3 h-3 md:w-4 md:h-4" />
-            {t('signalSource', language)}
-          </button>
-
-          <button
             onClick={() => setShowCreateModal(true)}
             disabled={
               configuredModels.length === 0 || configuredExchanges.length === 0
@@ -817,54 +781,6 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
           </button>
         </div>
       </div>
-
-      {/* 信号源配置警告 */}
-      {traders &&
-        traders.some((t) => t.use_coin_pool || t.use_oi_top) &&
-        !userSignalSource.coinPoolUrl &&
-        !userSignalSource.oiTopUrl && (
-          <div
-            className="rounded-lg px-4 py-3 flex items-start gap-3 animate-slide-in"
-            style={{
-              background: 'rgba(246, 70, 93, 0.1)',
-              border: '1px solid rgba(246, 70, 93, 0.3)',
-            }}
-          >
-            <AlertTriangle
-              size={20}
-              className="flex-shrink-0 mt-0.5"
-              style={{ color: '#F6465D' }}
-            />
-            <div className="flex-1">
-              <div className="font-semibold mb-1" style={{ color: '#F6465D' }}>
-                ⚠️ {t('signalSourceNotConfigured', language)}
-              </div>
-              <div className="text-sm" style={{ color: '#848E9C' }}>
-                <p className="mb-2">
-                  {t('signalSourceWarningMessage', language)}
-                </p>
-                <p>
-                  <strong>{t('solutions', language)}</strong>
-                </p>
-                <ul className="list-disc list-inside space-y-1 ml-2 mt-1">
-                  <li>点击"{t('signalSource', language)}"按钮配置API地址</li>
-                  <li>或在交易员配置中禁用"使用币种池"和"使用OI Top"</li>
-                  <li>或在交易员配置中设置自定义币种列表</li>
-                </ul>
-              </div>
-              <button
-                onClick={() => setShowSignalSourceModal(true)}
-                className="mt-3 px-3 py-1.5 rounded text-sm font-semibold transition-all hover:scale-105"
-                style={{
-                  background: '#F0B90B',
-                  color: '#000',
-                }}
-              >
-                {t('configureSignalSourceNow', language)}
-              </button>
-            </div>
-          </div>
-        )}
 
       {/* Configuration Status */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
@@ -1031,7 +947,31 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
           </h2>
         </div>
 
-        {traders && traders.length > 0 ? (
+        {isTradersLoading ? (
+          /* Loading Skeleton */
+          <div className="space-y-3 md:space-y-4">
+            {[1, 2, 3].map((i) => (
+              <div
+                key={i}
+                className="flex flex-col md:flex-row md:items-center justify-between p-3 md:p-4 rounded gap-3 md:gap-4 animate-pulse"
+                style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+              >
+                <div className="flex items-center gap-3 md:gap-4">
+                  <div className="w-10 h-10 md:w-12 md:h-12 rounded-full skeleton"></div>
+                  <div className="min-w-0 space-y-2">
+                    <div className="skeleton h-5 w-32"></div>
+                    <div className="skeleton h-3 w-24"></div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 md:gap-4">
+                  <div className="skeleton h-6 w-16"></div>
+                  <div className="skeleton h-6 w-16"></div>
+                  <div className="skeleton h-8 w-20"></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : traders && traders.length > 0 ? (
           <div className="space-y-3 md:space-y-4">
             {traders.map((trader) => (
               <div
@@ -1264,17 +1204,6 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
           language={language}
         />
       )}
-
-      {/* Signal Source Configuration Modal */}
-      {showSignalSourceModal && (
-        <SignalSourceModal
-          coinPoolUrl={userSignalSource.coinPoolUrl}
-          oiTopUrl={userSignalSource.oiTopUrl}
-          onSave={handleSaveSignalSource}
-          onClose={() => setShowSignalSourceModal(false)}
-          language={language}
-        />
-      )}
     </div>
   )
 }
@@ -1320,141 +1249,6 @@ function Tooltip({
           />
         </div>
       )}
-    </div>
-  )
-}
-
-// Signal Source Configuration Modal Component
-function SignalSourceModal({
-  coinPoolUrl,
-  oiTopUrl,
-  onSave,
-  onClose,
-  language,
-}: {
-  coinPoolUrl: string
-  oiTopUrl: string
-  onSave: (coinPoolUrl: string, oiTopUrl: string) => void
-  onClose: () => void
-  language: Language
-}) {
-  const [coinPool, setCoinPool] = useState(coinPoolUrl || '')
-  const [oiTop, setOiTop] = useState(oiTopUrl || '')
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    onSave(coinPool.trim(), oiTop.trim())
-  }
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
-      <div
-        className="bg-gray-800 rounded-lg w-full max-w-lg relative my-8"
-        style={{
-          background: '#1E2329',
-          maxHeight: 'calc(100vh - 4rem)',
-        }}
-      >
-        <h3 className="text-xl font-bold mb-4" style={{ color: '#EAECEF' }}>
-          {t('signalSourceConfig', language)}
-        </h3>
-
-        <form onSubmit={handleSubmit} className="px-6 pb-6">
-          <div
-            className="space-y-4 overflow-y-auto"
-            style={{ maxHeight: 'calc(100vh - 16rem)' }}
-          >
-            <div>
-              <label
-                className="block text-sm font-semibold mb-2"
-                style={{ color: '#EAECEF' }}
-              >
-                COIN POOL URL
-              </label>
-              <input
-                type="url"
-                value={coinPool}
-                onChange={(e) => setCoinPool(e.target.value)}
-                placeholder="https://api.example.com/coinpool"
-                className="w-full px-3 py-2 rounded"
-                style={{
-                  background: '#0B0E11',
-                  border: '1px solid #2B3139',
-                  color: '#EAECEF',
-                }}
-              />
-              <div className="text-xs mt-1" style={{ color: '#848E9C' }}>
-                {t('coinPoolDescription', language)}
-              </div>
-            </div>
-
-            <div>
-              <label
-                className="block text-sm font-semibold mb-2"
-                style={{ color: '#EAECEF' }}
-              >
-                OI TOP URL
-              </label>
-              <input
-                type="url"
-                value={oiTop}
-                onChange={(e) => setOiTop(e.target.value)}
-                placeholder="https://api.example.com/oitop"
-                className="w-full px-3 py-2 rounded"
-                style={{
-                  background: '#0B0E11',
-                  border: '1px solid #2B3139',
-                  color: '#EAECEF',
-                }}
-              />
-              <div className="text-xs mt-1" style={{ color: '#848E9C' }}>
-                {t('oiTopDescription', language)}
-              </div>
-            </div>
-
-            <div
-              className="p-4 rounded"
-              style={{
-                background: 'rgba(240, 185, 11, 0.1)',
-                border: '1px solid rgba(240, 185, 11, 0.2)',
-              }}
-            >
-              <div
-                className="text-sm font-semibold mb-2"
-                style={{ color: '#F0B90B' }}
-              >
-                ℹ️ {t('information', language)}
-              </div>
-              <div className="text-xs space-y-1" style={{ color: '#848E9C' }}>
-                <div>{t('signalSourceInfo1', language)}</div>
-                <div>{t('signalSourceInfo2', language)}</div>
-                <div>{t('signalSourceInfo3', language)}</div>
-              </div>
-            </div>
-          </div>
-
-          <div
-            className="flex gap-3 mt-6 pt-4 sticky bottom-0"
-            style={{ background: '#1E2329' }}
-          >
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 px-4 py-2 rounded text-sm font-semibold"
-              style={{ background: '#2B3139', color: '#848E9C' }}
-            >
-              {t('cancel', language)}
-            </button>
-            <button
-              type="submit"
-              className="flex-1 px-4 py-2 rounded text-sm font-semibold"
-              style={{ background: '#F0B90B', color: '#000' }}
-            >
-              {t('save', language)}
-            </button>
-          </div>
-        </form>
-      </div>
     </div>
   )
 }
@@ -1758,11 +1552,15 @@ function ExchangeConfigModal({
     exchangeId: string,
     apiKey: string,
     secretKey?: string,
+    passphrase?: string,
     testnet?: boolean,
     hyperliquidWalletAddr?: string,
     asterUser?: string,
     asterSigner?: string,
-    asterPrivateKey?: string
+    asterPrivateKey?: string,
+    lighterWalletAddr?: string,
+    lighterPrivateKey?: string,
+    lighterApiKeyPrivateKey?: string
   ) => Promise<void>
   onDelete: (exchangeId: string) => void
   onClose: () => void
@@ -1796,9 +1594,14 @@ function ExchangeConfigModal({
   // Hyperliquid 特定字段
   const [hyperliquidWalletAddr, setHyperliquidWalletAddr] = useState('')
 
+  // LIGHTER 特定字段
+  const [lighterWalletAddr, setLighterWalletAddr] = useState('')
+  const [lighterPrivateKey, setLighterPrivateKey] = useState('')
+  const [lighterApiKeyPrivateKey, setLighterApiKeyPrivateKey] = useState('')
+
   // 安全输入状态
   const [secureInputTarget, setSecureInputTarget] = useState<
-    null | 'hyperliquid' | 'aster'
+    null | 'hyperliquid' | 'aster' | 'lighter'
   >(null)
 
   // 获取当前编辑的交易所信息
@@ -1821,6 +1624,11 @@ function ExchangeConfigModal({
 
       // Hyperliquid 字段
       setHyperliquidWalletAddr(selectedExchange.hyperliquidWalletAddr || '')
+
+      // LIGHTER 字段
+      setLighterWalletAddr(selectedExchange.lighterWalletAddr || '')
+      setLighterPrivateKey('') // Don't load existing private key for security
+      setLighterApiKeyPrivateKey('') // Don't load existing API key for security
     }
   }, [editingExchangeId, selectedExchange])
 
@@ -1926,14 +1734,18 @@ function ExchangeConfigModal({
     if (!selectedExchangeId) return
 
     // 根据交易所类型验证不同字段
-    if (selectedExchange?.id === 'binance') {
+    if (selectedExchange?.id === 'binance' || selectedExchange?.id === 'bybit') {
       if (!apiKey.trim() || !secretKey.trim()) return
-      await onSave(selectedExchangeId, apiKey.trim(), secretKey.trim(), testnet)
+      await onSave(selectedExchangeId, apiKey.trim(), secretKey.trim(), '', testnet)
+    } else if (selectedExchange?.id === 'okx') {
+      if (!apiKey.trim() || !secretKey.trim() || !passphrase.trim()) return
+      await onSave(selectedExchangeId, apiKey.trim(), secretKey.trim(), passphrase.trim(), testnet)
     } else if (selectedExchange?.id === 'hyperliquid') {
-      if (!apiKey.trim() || !hyperliquidWalletAddr.trim()) return // 验证私钥和钱包地址
+      if (!apiKey.trim() || !hyperliquidWalletAddr.trim()) return
       await onSave(
         selectedExchangeId,
         apiKey.trim(),
+        '',
         '',
         testnet,
         hyperliquidWalletAddr.trim()
@@ -1945,19 +1757,33 @@ function ExchangeConfigModal({
         selectedExchangeId,
         '',
         '',
+        '',
         testnet,
         undefined,
         asterUser.trim(),
         asterSigner.trim(),
         asterPrivateKey.trim()
       )
-    } else if (selectedExchange?.id === 'okx') {
-      if (!apiKey.trim() || !secretKey.trim() || !passphrase.trim()) return
-      await onSave(selectedExchangeId, apiKey.trim(), secretKey.trim(), testnet)
+    } else if (selectedExchange?.id === 'lighter') {
+      if (!lighterWalletAddr.trim() || !lighterPrivateKey.trim()) return
+      await onSave(
+        selectedExchangeId,
+        '',
+        '',
+        '',
+        testnet,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        lighterWalletAddr.trim(),
+        lighterPrivateKey.trim(),
+        lighterApiKeyPrivateKey.trim()
+      )
     } else {
       // 默认情况（其他CEX交易所）
       if (!apiKey.trim() || !secretKey.trim()) return
-      await onSave(selectedExchangeId, apiKey.trim(), secretKey.trim(), testnet)
+      await onSave(selectedExchangeId, apiKey.trim(), secretKey.trim(), '', testnet)
     }
   }
 
@@ -2095,9 +1921,10 @@ function ExchangeConfigModal({
 
             {selectedExchange && (
               <>
-                {/* Binance/Bybit 和其他 CEX 交易所的字段 */}
+                {/* Binance/Bybit/OKX 和其他 CEX 交易所的字段 */}
                 {(selectedExchange.id === 'binance' ||
                   selectedExchange.id === 'bybit' ||
+                  selectedExchange.id === 'okx' ||
                   selectedExchange.type === 'cex') &&
                   selectedExchange.id !== 'hyperliquid' &&
                   selectedExchange.id !== 'aster' && (
@@ -2553,6 +2380,104 @@ function ExchangeConfigModal({
                     </div>
                   </>
                 )}
+
+                {/* LIGHTER 交易所的字段 */}
+                {selectedExchange.id === 'lighter' && (
+                  <>
+                    <div className="mb-4">
+                      <label
+                        className="block text-sm font-semibold mb-2"
+                        style={{ color: '#EAECEF' }}
+                      >
+                        {t('lighterWalletAddress', language)}
+                      </label>
+                      <input
+                        type="text"
+                        value={lighterWalletAddr}
+                        onChange={(e) => setLighterWalletAddr(e.target.value)}
+                        placeholder={t('enterLighterWalletAddress', language)}
+                        className="w-full px-3 py-2 rounded"
+                        style={{
+                          background: '#0B0E11',
+                          border: '1px solid #2B3139',
+                          color: '#EAECEF',
+                        }}
+                        required
+                      />
+                      <div className="text-xs mt-1" style={{ color: '#848E9C' }}>
+                        {t('lighterWalletAddressDesc', language)}
+                      </div>
+                    </div>
+
+                    <div className="mb-4">
+                      <label
+                        className="block text-sm font-semibold mb-2"
+                        style={{ color: '#EAECEF' }}
+                      >
+                        {t('lighterPrivateKey', language)}
+                      </label>
+                      <input
+                        type="password"
+                        value={lighterPrivateKey}
+                        onChange={(e) => setLighterPrivateKey(e.target.value)}
+                        placeholder={t('enterLighterPrivateKey', language)}
+                        className="w-full px-3 py-2 rounded font-mono text-sm"
+                        style={{
+                          background: '#0B0E11',
+                          border: '1px solid #2B3139',
+                          color: '#EAECEF',
+                        }}
+                        required
+                      />
+                      <div className="text-xs mt-1" style={{ color: '#848E9C' }}>
+                        {t('lighterPrivateKeyDesc', language)}
+                      </div>
+                    </div>
+
+                    <div className="mb-4">
+                      <label
+                        className="block text-sm font-semibold mb-2"
+                        style={{ color: '#EAECEF' }}
+                      >
+                        {t('lighterApiKeyPrivateKey', language)} ⭐
+                      </label>
+                      <input
+                        type="password"
+                        value={lighterApiKeyPrivateKey}
+                        onChange={(e) => setLighterApiKeyPrivateKey(e.target.value)}
+                        placeholder={t('enterLighterApiKeyPrivateKey', language)}
+                        className="w-full px-3 py-2 rounded font-mono text-sm"
+                        style={{
+                          background: '#0B0E11',
+                          border: '1px solid #2B3139',
+                          color: '#EAECEF',
+                        }}
+                      />
+                      <div className="text-xs mt-1" style={{ color: '#848E9C' }}>
+                        {t('lighterApiKeyPrivateKeyDesc', language)}
+                      </div>
+                    </div>
+
+                    <div className="mb-4 p-3 rounded" style={{
+                      background: lighterApiKeyPrivateKey ? '#0F3F2E' : '#3F2E0F',
+                      border: '1px solid ' + (lighterApiKeyPrivateKey ? '#10B981' : '#F59E0B')
+                    }}>
+                      <div className="flex items-center gap-2">
+                        <div className="text-sm font-semibold" style={{
+                          color: lighterApiKeyPrivateKey ? '#10B981' : '#F59E0B'
+                        }}>
+                          {lighterApiKeyPrivateKey ? '✅ LIGHTER V2' : '⚠️ LIGHTER V1'}
+                        </div>
+                      </div>
+                      <div className="text-xs mt-1" style={{ color: '#848E9C' }}>
+                        {lighterApiKeyPrivateKey
+                          ? t('lighterV2Description', language)
+                          : t('lighterV1Description', language)
+                        }
+                      </div>
+                    </div>
+                  </>
+                )}
               </>
             )}
           </div>
@@ -2575,25 +2500,20 @@ function ExchangeConfigModal({
                 !selectedExchange ||
                 (selectedExchange.id === 'binance' &&
                   (!apiKey.trim() || !secretKey.trim())) ||
+                (selectedExchange.id === 'bybit' &&
+                  (!apiKey.trim() || !secretKey.trim())) ||
                 (selectedExchange.id === 'okx' &&
                   (!apiKey.trim() ||
                     !secretKey.trim() ||
                     !passphrase.trim())) ||
                 (selectedExchange.id === 'hyperliquid' &&
-                  (!apiKey.trim() || !hyperliquidWalletAddr.trim())) || // 验证私钥和钱包地址
+                  (!apiKey.trim() || !hyperliquidWalletAddr.trim())) ||
                 (selectedExchange.id === 'aster' &&
                   (!asterUser.trim() ||
                     !asterSigner.trim() ||
                     !asterPrivateKey.trim())) ||
-                (selectedExchange.id === 'bybit' &&
-                  (!apiKey.trim() || !secretKey.trim())) ||
-                (selectedExchange.type === 'cex' &&
-                  selectedExchange.id !== 'hyperliquid' &&
-                  selectedExchange.id !== 'aster' &&
-                  selectedExchange.id !== 'binance' &&
-                  selectedExchange.id !== 'bybit' &&
-                  selectedExchange.id !== 'okx' &&
-                  (!apiKey.trim() || !secretKey.trim()))
+                (selectedExchange.id === 'lighter' &&
+                  (!lighterWalletAddr.trim() || !lighterPrivateKey.trim()))
               }
               className="flex-1 px-4 py-2 rounded text-sm font-semibold disabled:opacity-50"
               style={{ background: '#F0B90B', color: '#000' }}

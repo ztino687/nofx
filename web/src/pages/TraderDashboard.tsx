@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import useSWR from 'swr'
+import useSWR, { mutate } from 'swr'
 import { api } from '../lib/api'
-import { EquityChart } from '../components/EquityChart'
-import AILearning from '../components/AILearning'
+import { ChartTabs } from '../components/ChartTabs'
 import { useLanguage } from '../contexts/LanguageContext'
 import { useAuth } from '../contexts/AuthContext'
 import { t, type Language } from '../i18n/translations'
@@ -19,8 +18,11 @@ import {
   Check,
   X,
   XCircle,
+  LogOut,
+  Loader2,
 } from 'lucide-react'
 import { stripLeadingIcons } from '../lib/text'
+import { confirmToast, notify } from '../lib/notify'
 import type {
   SystemStatus,
   AccountInfo,
@@ -60,10 +62,56 @@ export default function TraderDashboard() {
     return saved ? parseInt(saved, 10) : 5
   })
 
+  // 选中的币种（用于图表显示）
+  const [selectedChartSymbol, setSelectedChartSymbol] = useState<string | undefined>()
+  const [chartUpdateKey, setChartUpdateKey] = useState(0)
+
+  // 平仓操作状态
+  const [closingPosition, setClosingPosition] = useState<string | null>(null) // symbol being closed
+
+  // 点击持仓币种时调用
+  const handlePositionSymbolClick = (symbol: string) => {
+    setSelectedChartSymbol(symbol)
+    setChartUpdateKey(prev => prev + 1) // 强制触发更新
+  }
+
   // 当 limit 变化时保存到 localStorage
   const handleLimitChange = (newLimit: number) => {
     setDecisionLimit(newLimit)
     localStorage.setItem('decisionLimit', newLimit.toString())
+  }
+
+  // 平仓操作
+  const handleClosePosition = async (symbol: string, side: string) => {
+    if (!selectedTraderId) return
+
+    const confirmMsg = language === 'zh'
+      ? `确定要平仓 ${symbol} ${side === 'LONG' ? '多仓' : '空仓'} 吗？`
+      : `Are you sure you want to close ${symbol} ${side === 'LONG' ? 'LONG' : 'SHORT'} position?`
+
+    const confirmed = await confirmToast(confirmMsg, {
+      title: language === 'zh' ? '确认平仓' : 'Confirm Close',
+      okText: language === 'zh' ? '确认' : 'Confirm',
+      cancelText: language === 'zh' ? '取消' : 'Cancel',
+    })
+
+    if (!confirmed) return
+
+    setClosingPosition(symbol)
+    try {
+      await api.closePosition(selectedTraderId, symbol, side)
+      notify.success(language === 'zh' ? '平仓成功' : 'Position closed successfully')
+      // 使用 SWR mutate 刷新数据而非重新加载页面
+      await Promise.all([
+        mutate(`positions-${selectedTraderId}`),
+        mutate(`account-${selectedTraderId}`),
+      ])
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : (language === 'zh' ? '平仓失败' : 'Failed to close position')
+      notify.error(errorMsg)
+    } finally {
+      setClosingPosition(null)
+    }
   }
 
   // 获取trader列表（仅在用户登录时）
@@ -419,9 +467,13 @@ export default function TraderDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
         {/* 左侧：图表 + 持仓 */}
         <div className="space-y-6">
-          {/* Equity Chart */}
+          {/* Chart Tabs (Equity / K-line) */}
           <div className="animate-slide-in" style={{ animationDelay: '0.1s' }}>
-            <EquityChart traderId={selectedTrader.trader_id} />
+            <ChartTabs
+              traderId={selectedTrader.trader_id}
+              selectedSymbol={selectedChartSymbol}
+              updateKey={chartUpdateKey}
+            />
           </div>
 
           {/* Current Positions */}
@@ -462,6 +514,9 @@ export default function TraderDashboard() {
                         {t('side', language)}
                       </th>
                       <th className="pb-3 font-semibold text-gray-400">
+                        {language === 'zh' ? '操作' : 'Action'}
+                      </th>
+                      <th className="pb-3 font-semibold text-gray-400">
                         {t('entryPrice', language)}
                       </th>
                       <th className="pb-3 font-semibold text-gray-400">
@@ -491,7 +546,24 @@ export default function TraderDashboard() {
                         className="border-b border-gray-800 last:border-0"
                       >
                         <td className="py-3 font-mono font-semibold">
-                          {pos.symbol}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              console.log('点击了币种:', pos.symbol)
+                              handlePositionSymbolClick(pos.symbol)
+                            }}
+                            className="hover:underline cursor-pointer px-2 py-1 rounded transition-all"
+                            style={{
+                              color: '#F0B90B',
+                              background: 'rgba(240, 185, 11, 0.1)',
+                              border: '1px solid rgba(240, 185, 11, 0.3)'
+                            }}
+                            title={t('viewChart', language)}
+                          >
+                            📈 {pos.symbol}
+                          </button>
                         </td>
                         <td className="py-3">
                           <span
@@ -513,6 +585,27 @@ export default function TraderDashboard() {
                               language
                             )}
                           </span>
+                        </td>
+                        <td className="py-3">
+                          <button
+                            type="button"
+                            onClick={() => handleClosePosition(pos.symbol, pos.side.toUpperCase())}
+                            disabled={closingPosition === pos.symbol}
+                            className="flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold transition-all hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+                            style={{
+                              background: 'rgba(246, 70, 93, 0.1)',
+                              color: '#F6465D',
+                              border: '1px solid rgba(246, 70, 93, 0.3)',
+                            }}
+                            title={language === 'zh' ? '平仓' : 'Close Position'}
+                          >
+                            {closingPosition === pos.symbol ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <LogOut className="w-3 h-3" />
+                            )}
+                            {language === 'zh' ? '平仓' : 'Close'}
+                          </button>
                         </td>
                         <td
                           className="py-3 font-mono"
@@ -669,10 +762,6 @@ export default function TraderDashboard() {
         </div>
       </div>
 
-      {/* AI Learning & Performance Analysis */}
-      <div className="mb-6 animate-slide-in" style={{ animationDelay: '0.3s' }}>
-        <AILearning traderId={selectedTrader.trader_id} />
-      </div>
     </div>
   )
 }

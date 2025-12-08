@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
-import useSWR from 'swr'
+import { useEffect, useState, useRef } from 'react'
+import useSWR, { mutate } from 'swr'
 import { api } from './lib/api'
-import { EquityChart } from './components/EquityChart'
+import { ChartTabs } from './components/ChartTabs'
 import { AITradersPage } from './components/AITradersPage'
 import { LoginPage } from './components/LoginPage'
 import { RegisterPage } from './components/RegisterPage'
@@ -9,15 +9,17 @@ import { ResetPasswordPage } from './components/ResetPasswordPage'
 import { CompetitionPage } from './components/CompetitionPage'
 import { LandingPage } from './pages/LandingPage'
 import { FAQPage } from './pages/FAQPage'
+import { StrategyStudioPage } from './pages/StrategyStudioPage'
 import HeaderBar from './components/HeaderBar'
-import AILearning from './components/AILearning'
 import { LanguageProvider, useLanguage } from './contexts/LanguageContext'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { ConfirmDialogProvider } from './components/ConfirmDialog'
 import { t, type Language } from './i18n/translations'
+import { confirmToast, notify } from './lib/notify'
 import { useSystemConfig } from './hooks/useSystemConfig'
 import { DecisionCard } from './components/DecisionCard'
 import { BacktestPage } from './components/BacktestPage'
+import { LogOut, Loader2 } from 'lucide-react'
 import type {
   SystemStatus,
   AccountInfo,
@@ -32,6 +34,7 @@ type Page =
   | 'traders'
   | 'trader'
   | 'backtest'
+  | 'strategy'
   | 'faq'
   | 'login'
   | 'register'
@@ -63,6 +66,7 @@ function App() {
 
     if (path === '/traders' || hash === 'traders') return 'traders'
     if (path === '/backtest' || hash === 'backtest') return 'backtest'
+    if (path === '/strategy' || hash === 'strategy') return 'strategy'
     if (path === '/dashboard' || hash === 'trader' || hash === 'details')
       return 'trader'
     return 'competition' // 默认为竞赛页面
@@ -82,6 +86,8 @@ function App() {
         setCurrentPage('traders')
       } else if (path === '/backtest' || hash === 'backtest') {
         setCurrentPage('backtest')
+      } else if (path === '/strategy' || hash === 'strategy') {
+        setCurrentPage('strategy')
       } else if (
         path === '/dashboard' ||
         hash === 'trader' ||
@@ -292,6 +298,11 @@ function App() {
               window.history.pushState({}, '', '/backtest')
               setRoute('/backtest')
               setCurrentPage('backtest')
+            } else if (page === 'strategy') {
+              console.log('Navigating to strategy')
+              window.history.pushState({}, '', '/strategy')
+              setRoute('/strategy')
+              setCurrentPage('strategy')
             }
 
             console.log(
@@ -385,6 +396,10 @@ function App() {
             window.history.pushState({}, '', '/backtest')
             setRoute('/backtest')
             setCurrentPage('backtest')
+          } else if (page === 'strategy') {
+            window.history.pushState({}, '', '/strategy')
+            setRoute('/strategy')
+            setCurrentPage('strategy')
           } else if (page === 'faq') {
             window.history.pushState({}, '', '/faq')
             setRoute('/faq')
@@ -407,6 +422,8 @@ function App() {
           />
         ) : currentPage === 'backtest' ? (
           <BacktestPage />
+        ) : currentPage === 'strategy' ? (
+          <StrategyStudioPage />
         ) : (
           <TraderDetailsPage
             selectedTrader={selectedTrader}
@@ -509,6 +526,43 @@ function TraderDetailsPage({
   lastUpdate: string
   language: Language
 }) {
+  const [closingPosition, setClosingPosition] = useState<string | null>(null)
+  const [selectedChartSymbol, setSelectedChartSymbol] = useState<string | undefined>(undefined)
+  const [chartUpdateKey, setChartUpdateKey] = useState<number>(0)
+  const chartSectionRef = useRef<HTMLDivElement>(null)
+
+  // 平仓操作
+  const handleClosePosition = async (symbol: string, side: string) => {
+    if (!selectedTraderId) return
+
+    const confirmMsg = language === 'zh'
+      ? `确定要平仓 ${symbol} ${side === 'LONG' ? '多仓' : '空仓'} 吗？`
+      : `Are you sure you want to close ${symbol} ${side === 'LONG' ? 'LONG' : 'SHORT'} position?`
+
+    const confirmed = await confirmToast(confirmMsg, {
+      title: language === 'zh' ? '确认平仓' : 'Confirm Close',
+      okText: language === 'zh' ? '确认' : 'Confirm',
+      cancelText: language === 'zh' ? '取消' : 'Cancel',
+    })
+
+    if (!confirmed) return
+
+    setClosingPosition(symbol)
+    try {
+      await api.closePosition(selectedTraderId, symbol, side)
+      notify.success(language === 'zh' ? '平仓成功' : 'Position closed successfully')
+      // 使用 SWR mutate 刷新数据而非重新加载页面
+      await Promise.all([
+        mutate(`positions-${selectedTraderId}`),
+        mutate(`account-${selectedTraderId}`),
+      ])
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : (language === 'zh' ? '平仓失败' : 'Failed to close position')
+      notify.error(errorMsg)
+    } finally {
+      setClosingPosition(null)
+    }
+  }
   // If API failed with error, show empty state (likely backend not running)
   if (tradersError) {
     return (
@@ -719,7 +773,7 @@ function TraderDetailsPage({
             >
               {getModelDisplayName(
                 selectedTrader.ai_model.split('_').pop() ||
-                  selectedTrader.ai_model
+                selectedTrader.ai_model
               )}
             </span>
           </span>
@@ -780,9 +834,18 @@ function TraderDetailsPage({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
         {/* 左侧：图表 + 持仓 */}
         <div className="space-y-6">
-          {/* Equity Chart */}
-          <div className="animate-slide-in" style={{ animationDelay: '0.1s' }}>
-            <EquityChart traderId={selectedTrader.trader_id} />
+          {/* Chart Tabs (Equity / K-line) */}
+          <div
+            ref={chartSectionRef}
+            className="chart-container animate-slide-in scroll-mt-32"
+            style={{ animationDelay: '0.1s' }}
+          >
+            <ChartTabs
+              traderId={selectedTrader.trader_id}
+              selectedSymbol={selectedChartSymbol}
+              updateKey={chartUpdateKey}
+              exchangeId={selectedTrader.exchange_id}
+            />
           </div>
 
           {/* Current Positions */}
@@ -812,35 +875,38 @@ function TraderDetailsPage({
             </div>
             {positions && positions.length > 0 ? (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="w-full text-xs">
                   <thead className="text-left border-b border-gray-800">
                     <tr>
-                      <th className="pb-3 font-semibold text-gray-400">
+                      <th className="px-1 pb-3 font-semibold text-gray-400 whitespace-nowrap text-left">
                         {t('symbol', language)}
                       </th>
-                      <th className="pb-3 font-semibold text-gray-400">
+                      <th className="px-1 pb-3 font-semibold text-gray-400 whitespace-nowrap text-center">
                         {t('side', language)}
                       </th>
-                      <th className="pb-3 font-semibold text-gray-400">
-                        {t('entryPrice', language)}
+                      <th className="px-1 pb-3 font-semibold text-gray-400 whitespace-nowrap text-center">
+                        {language === 'zh' ? '操作' : 'Action'}
                       </th>
-                      <th className="pb-3 font-semibold text-gray-400">
-                        {t('markPrice', language)}
+                      <th className="px-1 pb-3 font-semibold text-gray-400 whitespace-nowrap text-right" title={t('entryPrice', language)}>
+                        {language === 'zh' ? '入场价' : 'Entry'}
                       </th>
-                      <th className="pb-3 font-semibold text-gray-400">
-                        {t('quantity', language)}
+                      <th className="px-1 pb-3 font-semibold text-gray-400 whitespace-nowrap text-right" title={t('markPrice', language)}>
+                        {language === 'zh' ? '标记价' : 'Mark'}
                       </th>
-                      <th className="pb-3 font-semibold text-gray-400">
-                        {t('positionValue', language)}
+                      <th className="px-1 pb-3 font-semibold text-gray-400 whitespace-nowrap text-right" title={t('quantity', language)}>
+                        {language === 'zh' ? '数量' : 'Qty'}
                       </th>
-                      <th className="pb-3 font-semibold text-gray-400">
-                        {t('leverage', language)}
+                      <th className="px-1 pb-3 font-semibold text-gray-400 whitespace-nowrap text-right" title={t('positionValue', language)}>
+                        {language === 'zh' ? '价值' : 'Value'}
                       </th>
-                      <th className="pb-3 font-semibold text-gray-400">
-                        {t('unrealizedPnL', language)}
+                      <th className="px-1 pb-3 font-semibold text-gray-400 whitespace-nowrap text-center" title={t('leverage', language)}>
+                        {language === 'zh' ? '杠杆' : 'Lev.'}
                       </th>
-                      <th className="pb-3 font-semibold text-gray-400">
-                        {t('liqPrice', language)}
+                      <th className="px-1 pb-3 font-semibold text-gray-400 whitespace-nowrap text-right" title={t('unrealizedPnL', language)}>
+                        {language === 'zh' ? '未实现盈亏' : 'uPnL'}
+                      </th>
+                      <th className="px-1 pb-3 font-semibold text-gray-400 whitespace-nowrap text-right" title={t('liqPrice', language)}>
+                        {language === 'zh' ? '强平价' : 'Liq.'}
                       </th>
                     </tr>
                   </thead>
@@ -848,24 +914,32 @@ function TraderDetailsPage({
                     {positions.map((pos, i) => (
                       <tr
                         key={i}
-                        className="border-b border-gray-800 last:border-0"
+                        className="border-b border-gray-800 last:border-0 transition-colors hover:bg-opacity-10 hover:bg-yellow-500 cursor-pointer"
+                        onClick={() => {
+                          setSelectedChartSymbol(pos.symbol)
+                          setChartUpdateKey(Date.now())
+                          // Smooth scroll to chart with ref
+                          if (chartSectionRef.current) {
+                            chartSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                          }
+                        }}
                       >
-                        <td className="py-3 font-mono font-semibold">
+                        <td className="px-1 py-3 font-mono font-semibold whitespace-nowrap text-left">
                           {pos.symbol}
                         </td>
-                        <td className="py-3">
+                        <td className="px-1 py-3 whitespace-nowrap text-center">
                           <span
-                            className="px-2 py-1 rounded text-xs font-bold"
+                            className="px-1.5 py-0.5 rounded text-[10px] font-bold"
                             style={
                               pos.side === 'long'
                                 ? {
-                                    background: 'rgba(14, 203, 129, 0.1)',
-                                    color: '#0ECB81',
-                                  }
+                                  background: 'rgba(14, 203, 129, 0.1)',
+                                  color: '#0ECB81',
+                                }
                                 : {
-                                    background: 'rgba(246, 70, 93, 0.1)',
-                                    color: '#F6465D',
-                                  }
+                                  background: 'rgba(246, 70, 93, 0.1)',
+                                  color: '#F6465D',
+                                }
                             }
                           >
                             {t(
@@ -874,37 +948,56 @@ function TraderDetailsPage({
                             )}
                           </span>
                         </td>
+                        <td className="px-1 py-3 whitespace-nowrap text-center">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation(); // Prevent row click
+                              handleClosePosition(pos.symbol, pos.side.toUpperCase())
+                            }}
+                            disabled={closingPosition === pos.symbol}
+                            className="btn-danger inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold transition-all hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed mx-auto"
+                            title={language === 'zh' ? '平仓' : 'Close Position'}
+                          >
+                            {closingPosition === pos.symbol ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <LogOut className="w-3 h-3" />
+                            )}
+                            {language === 'zh' ? '平仓' : 'Close'}
+                          </button>
+                        </td>
                         <td
-                          className="py-3 font-mono"
+                          className="px-1 py-3 font-mono whitespace-nowrap text-right"
                           style={{ color: '#EAECEF' }}
                         >
                           {pos.entry_price.toFixed(4)}
                         </td>
                         <td
-                          className="py-3 font-mono"
+                          className="px-1 py-3 font-mono whitespace-nowrap text-right"
                           style={{ color: '#EAECEF' }}
                         >
                           {pos.mark_price.toFixed(4)}
                         </td>
                         <td
-                          className="py-3 font-mono"
+                          className="px-1 py-3 font-mono whitespace-nowrap text-right"
                           style={{ color: '#EAECEF' }}
                         >
                           {pos.quantity.toFixed(4)}
                         </td>
                         <td
-                          className="py-3 font-mono font-bold"
+                          className="px-1 py-3 font-mono font-bold whitespace-nowrap text-right"
                           style={{ color: '#EAECEF' }}
                         >
-                          {(pos.quantity * pos.mark_price).toFixed(2)} USDT
+                          {(pos.quantity * pos.mark_price).toFixed(2)}
                         </td>
                         <td
-                          className="py-3 font-mono"
+                          className="px-1 py-3 font-mono whitespace-nowrap text-center"
                           style={{ color: '#F0B90B' }}
                         >
                           {pos.leverage}x
                         </td>
-                        <td className="py-3 font-mono">
+                        <td className="px-1 py-3 font-mono whitespace-nowrap text-right">
                           <span
                             style={{
                               color:
@@ -913,12 +1006,11 @@ function TraderDetailsPage({
                             }}
                           >
                             {pos.unrealized_pnl >= 0 ? '+' : ''}
-                            {pos.unrealized_pnl.toFixed(2)} (
-                            {pos.unrealized_pnl_pct.toFixed(2)}%)
+                            {pos.unrealized_pnl.toFixed(2)}
                           </span>
                         </td>
                         <td
-                          className="py-3 font-mono"
+                          className="px-1 py-3 font-mono whitespace-nowrap text-right"
                           style={{ color: '#848E9C' }}
                         >
                           {pos.liquidation_price.toFixed(4)}
@@ -1002,10 +1094,6 @@ function TraderDetailsPage({
         {/* 右侧结束 */}
       </div>
 
-      {/* AI Learning & Performance Analysis */}
-      <div className="mb-6 animate-slide-in" style={{ animationDelay: '0.3s' }}>
-        <AILearning traderId={selectedTrader.trader_id} />
-      </div>
     </div>
   )
 }

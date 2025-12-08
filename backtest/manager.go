@@ -4,14 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"nofx/logger"
 	"os"
 	"sort"
 	"strings"
 	"sync"
 
-	"nofx/logger"
 	"nofx/mcp"
+	"nofx/store"
 )
 
 type Manager struct {
@@ -377,7 +377,7 @@ func (m *Manager) Status(runID string) *StatusPayload {
 func (m *Manager) launchWatcher(runID string, runner *Runner) {
 	go func() {
 		if err := runner.Wait(); err != nil {
-			log.Printf("backtest run %s finished with error: %v", runID, err)
+			logger.Infof("backtest run %s finished with error: %v", runID, err)
 		}
 		runner.PersistMetadata()
 		meta := runner.CurrentMetadata()
@@ -419,7 +419,7 @@ func (m *Manager) storeMetadata(runID string, meta *RunMetadata) {
 	m.mu.Unlock()
 	_ = SaveRunMetadata(meta)
 	if err := updateRunIndex(meta, nil); err != nil {
-		log.Printf("failed to update run index for %s: %v", runID, err)
+		logger.Infof("failed to update run index for %s: %v", runID, err)
 	}
 }
 
@@ -438,14 +438,14 @@ func (m *Manager) resolveAIConfig(cfg *BacktestConfig) error {
 	m.mu.RUnlock()
 	if resolver == nil {
 		if apiKey == "" {
-			return fmt.Errorf("AI配置缺少密钥且未配置解析器")
+			return fmt.Errorf("AI configuration missing key and no resolver configured")
 		}
 		return nil
 	}
 	return resolver(cfg)
 }
 
-func (m *Manager) GetTrace(runID string, cycle int) (*logger.DecisionRecord, error) {
+func (m *Manager) GetTrace(runID string, cycle int) (*store.DecisionRecord, error) {
 	return LoadDecisionTrace(runID, cycle)
 }
 
@@ -453,7 +453,7 @@ func (m *Manager) ExportRun(runID string) (string, error) {
 	return CreateRunExport(runID)
 }
 
-// RestoreRunsFromDisk 扫描 backtests 目录并恢复现有 run 的元数据（服务重启场景）。
+// RestoreRuns scans the backtests directory and restores metadata for existing runs (service restart scenario).
 func (m *Manager) RestoreRuns() error {
 	runIDs, err := LoadRunIDs()
 	if err != nil {
@@ -462,18 +462,18 @@ func (m *Manager) RestoreRuns() error {
 	for _, runID := range runIDs {
 		meta, err := LoadRunMetadata(runID)
 		if err != nil {
-			log.Printf("skip run %s: %v", runID, err)
+			logger.Infof("skip run %s: %v", runID, err)
 			continue
 		}
 		if meta.State == RunStateRunning {
 			lock, err := loadRunLock(runID)
 			if err != nil || lockIsStale(lock) {
 				if err := deleteRunLock(runID); err != nil {
-					log.Printf("failed to cleanup lock for %s: %v", runID, err)
+					logger.Infof("failed to cleanup lock for %s: %v", runID, err)
 				}
 				meta.State = RunStatePaused
 				if err := SaveRunMetadata(meta); err != nil {
-					log.Printf("failed to mark %s paused: %v", runID, err)
+					logger.Infof("failed to mark %s paused: %v", runID, err)
 				}
 			}
 		}
@@ -481,13 +481,13 @@ func (m *Manager) RestoreRuns() error {
 		m.metadata[runID] = meta
 		m.mu.Unlock()
 		if err := updateRunIndex(meta, nil); err != nil {
-			log.Printf("failed to sync index for %s: %v", runID, err)
+			logger.Infof("failed to sync index for %s: %v", runID, err)
 		}
 	}
 	return nil
 }
 
-// RestoreRunsFromDisk 保留旧方法名，兼容历史调用。
+// RestoreRunsFromDisk retains the old method name for backward compatibility.
 func (m *Manager) RestoreRunsFromDisk() error {
 	return m.RestoreRuns()
 }

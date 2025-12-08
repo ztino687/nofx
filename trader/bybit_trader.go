@@ -2,8 +2,11 @@ package trader
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"log"
+	"io"
+	"math"
+	"nofx/logger"
 	"net/http"
 	"strconv"
 	"strings"
@@ -13,31 +16,35 @@ import (
 	bybit "github.com/bybit-exchange/bybit.go.api"
 )
 
-// BybitTrader Bybit USDT 永續合約交易器
+// BybitTrader Bybit USDT Perpetual Futures Trader
 type BybitTrader struct {
 	client *bybit.Client
 
-	// 余额缓存
+	// Balance cache
 	cachedBalance     map[string]interface{}
 	balanceCacheTime  time.Time
 	balanceCacheMutex sync.RWMutex
 
-	// 持仓缓存
+	// Position cache
 	cachedPositions     []map[string]interface{}
 	positionsCacheTime  time.Time
 	positionsCacheMutex sync.RWMutex
 
-	// 缓存有效期（15秒）
+	// Trading pair precision cache (symbol -> qtyStep)
+	qtyStepCache      map[string]float64
+	qtyStepCacheMutex sync.RWMutex
+
+	// Cache duration (15 seconds)
 	cacheDuration time.Duration
 }
 
-// NewBybitTrader 创建 Bybit 交易器
+// NewBybitTrader creates a Bybit trader
 func NewBybitTrader(apiKey, secretKey string) *BybitTrader {
 	const src = "Up000938"
 
 	client := bybit.NewBybitHttpClient(apiKey, secretKey, bybit.WithBaseURL(bybit.MAINNET))
 
-	// 设置 HTTP 传输
+	// Set HTTP transport
 	if client != nil && client.HTTPClient != nil {
 		defaultTransport := client.HTTPClient.Transport
 		if defaultTransport == nil {
@@ -53,14 +60,15 @@ func NewBybitTrader(apiKey, secretKey string) *BybitTrader {
 	trader := &BybitTrader{
 		client:        client,
 		cacheDuration: 15 * time.Second,
+		qtyStepCache:  make(map[string]float64),
 	}
 
-	log.Printf("🔵 [Bybit] 交易器已初始化")
+	logger.Infof("🔵 [Bybit] Trader initialized")
 
 	return trader
 }
 
-// headerRoundTripper 用于添加自定义 header 的 HTTP RoundTripper
+// headerRoundTripper HTTP RoundTripper for adding custom headers
 type headerRoundTripper struct {
 	base      http.RoundTripper
 	refererID string
@@ -71,9 +79,9 @@ func (h *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 	return h.base.RoundTrip(req)
 }
 
-// GetBalance 获取账户余额
+// GetBalance retrieves account balance
 func (t *BybitTrader) GetBalance() (map[string]interface{}, error) {
-	// 检查缓存
+	// Check cache
 	t.balanceCacheMutex.RLock()
 	if t.cachedBalance != nil && time.Since(t.balanceCacheTime) < t.cacheDuration {
 		balance := t.cachedBalance
@@ -82,29 +90,29 @@ func (t *BybitTrader) GetBalance() (map[string]interface{}, error) {
 	}
 	t.balanceCacheMutex.RUnlock()
 
-	// 调用 API
+	// Call API
 	params := map[string]interface{}{
 		"accountType": "UNIFIED",
 	}
 
 	result, err := t.client.NewUtaBybitServiceWithParams(params).GetAccountWallet(context.Background())
 	if err != nil {
-		return nil, fmt.Errorf("获取 Bybit 余额失败: %w", err)
+		return nil, fmt.Errorf("failed to get Bybit balance: %w", err)
 	}
 
 	if result.RetCode != 0 {
-		return nil, fmt.Errorf("Bybit API 错误: %s", result.RetMsg)
+		return nil, fmt.Errorf("Bybit API error: %s", result.RetMsg)
 	}
 
-	// 提取余额信息
+	// Extract balance information
 	resultData, ok := result.Result.(map[string]interface{})
 	if !ok {
-		return nil, fmt.Errorf("Bybit 余额返回格式错误")
+		return nil, fmt.Errorf("Bybit balance return format error")
 	}
 
 	list, _ := resultData["list"].([]interface{})
 
-	var totalEquity, availableBalance float64 = 0, 0
+	var totalEquity, availableBalance, totalWalletBalance, totalPerpUPL float64 = 0, 0, 0, 0
 
 	if len(list) > 0 {
 		account, _ := list[0].(map[string]interface{})
@@ -114,15 +122,30 @@ func (t *BybitTrader) GetBalance() (map[string]interface{}, error) {
 		if availStr, ok := account["totalAvailableBalance"].(string); ok {
 			availableBalance, _ = strconv.ParseFloat(availStr, 64)
 		}
+		// Bybit UNIFIED account wallet balance field
+		if walletStr, ok := account["totalWalletBalance"].(string); ok {
+			totalWalletBalance, _ = strconv.ParseFloat(walletStr, 64)
+		}
+		// Bybit perpetual contract unrealized PnL
+		if uplStr, ok := account["totalPerpUPL"].(string); ok {
+			totalPerpUPL, _ = strconv.ParseFloat(uplStr, 64)
+		}
+	}
+
+	// If no totalWalletBalance, use totalEquity
+	if totalWalletBalance == 0 {
+		totalWalletBalance = totalEquity
 	}
 
 	balance := map[string]interface{}{
-		"totalEquity":      totalEquity,
-		"availableBalance": availableBalance,
-		"balance":          totalEquity, // 兼容其他交易所格式
+		"totalEquity":           totalEquity,
+		"totalWalletBalance":    totalWalletBalance,
+		"availableBalance":      availableBalance,
+		"totalUnrealizedProfit": totalPerpUPL,
+		"balance":               totalEquity, // Compatible with other exchange formats
 	}
 
-	// 更新缓存
+	// Update cache
 	t.balanceCacheMutex.Lock()
 	t.cachedBalance = balance
 	t.balanceCacheTime = time.Now()
@@ -131,9 +154,9 @@ func (t *BybitTrader) GetBalance() (map[string]interface{}, error) {
 	return balance, nil
 }
 
-// GetPositions 获取所有持仓
+// GetPositions retrieves all positions
 func (t *BybitTrader) GetPositions() ([]map[string]interface{}, error) {
-	// 检查缓存
+	// Check cache
 	t.positionsCacheMutex.RLock()
 	if t.cachedPositions != nil && time.Since(t.positionsCacheTime) < t.cacheDuration {
 		positions := t.cachedPositions
@@ -142,7 +165,7 @@ func (t *BybitTrader) GetPositions() ([]map[string]interface{}, error) {
 	}
 	t.positionsCacheMutex.RUnlock()
 
-	// 调用 API
+	// Call API
 	params := map[string]interface{}{
 		"category":   "linear",
 		"settleCoin": "USDT",
@@ -150,16 +173,16 @@ func (t *BybitTrader) GetPositions() ([]map[string]interface{}, error) {
 
 	result, err := t.client.NewUtaBybitServiceWithParams(params).GetPositionList(context.Background())
 	if err != nil {
-		return nil, fmt.Errorf("获取 Bybit 持仓失败: %w", err)
+		return nil, fmt.Errorf("failed to get Bybit positions: %w", err)
 	}
 
 	if result.RetCode != 0 {
-		return nil, fmt.Errorf("Bybit API 错误: %s", result.RetMsg)
+		return nil, fmt.Errorf("Bybit API error: %s", result.RetMsg)
 	}
 
 	resultData, ok := result.Result.(map[string]interface{})
 	if !ok {
-		return nil, fmt.Errorf("Bybit 持仓返回格式错误")
+		return nil, fmt.Errorf("Bybit positions return format error")
 	}
 
 	list, _ := resultData["list"].([]interface{})
@@ -175,7 +198,7 @@ func (t *BybitTrader) GetPositions() ([]map[string]interface{}, error) {
 		sizeStr, _ := pos["size"].(string)
 		size, _ := strconv.ParseFloat(sizeStr, 64)
 
-		// 跳过空仓位
+		// Skip empty positions
 		if size == 0 {
 			continue
 		}
@@ -189,9 +212,17 @@ func (t *BybitTrader) GetPositions() ([]map[string]interface{}, error) {
 		leverageStr, _ := pos["leverage"].(string)
 		leverage, _ := strconv.ParseFloat(leverageStr, 64)
 
+		// Mark price
+		markPriceStr, _ := pos["markPrice"].(string)
+		markPrice, _ := strconv.ParseFloat(markPriceStr, 64)
+
+		// Liquidation price
+		liqPriceStr, _ := pos["liqPrice"].(string)
+		liqPrice, _ := strconv.ParseFloat(liqPriceStr, 64)
+
 		positionSide, _ := pos["side"].(string) // Buy = LONG, Sell = SHORT
 
-		// 转换为统一格式
+		// Convert to unified format
 		side := "LONG"
 		positionAmt := size
 		if positionSide == "Sell" {
@@ -200,18 +231,21 @@ func (t *BybitTrader) GetPositions() ([]map[string]interface{}, error) {
 		}
 
 		position := map[string]interface{}{
-			"symbol":        pos["symbol"],
-			"side":          side,
-			"positionAmt":   positionAmt,
-			"entryPrice":    entryPrice,
-			"unrealizedPnL": unrealisedPnl,
-			"leverage":      int(leverage),
+			"symbol":           pos["symbol"],
+			"side":             side,
+			"positionAmt":      positionAmt,
+			"entryPrice":       entryPrice,
+			"markPrice":        markPrice,
+			"unRealizedProfit": unrealisedPnl,
+			"unrealizedPnL":    unrealisedPnl,
+			"liquidationPrice": liqPrice,
+			"leverage":         leverage,
 		}
 
 		positions = append(positions, position)
 	}
 
-	// 更新缓存
+	// Update cache
 	t.positionsCacheMutex.Lock()
 	t.cachedPositions = positions
 	t.positionsCacheTime = time.Now()
@@ -220,63 +254,69 @@ func (t *BybitTrader) GetPositions() ([]map[string]interface{}, error) {
 	return positions, nil
 }
 
-// OpenLong 开多仓
+// OpenLong opens a long position
 func (t *BybitTrader) OpenLong(symbol string, quantity float64, leverage int) (map[string]interface{}, error) {
-	// 先设置杠杆
+	// Set leverage first
 	if err := t.SetLeverage(symbol, leverage); err != nil {
-		log.Printf("⚠️ [Bybit] 设置杠杆失败: %v", err)
+		logger.Infof("⚠️ [Bybit] Failed to set leverage: %v", err)
 	}
+
+	// Use FormatQuantity to format quantity
+	qtyStr, _ := t.FormatQuantity(symbol, quantity)
 
 	params := map[string]interface{}{
 		"category":    "linear",
 		"symbol":      symbol,
 		"side":        "Buy",
 		"orderType":   "Market",
-		"qty":         fmt.Sprintf("%v", quantity),
-		"positionIdx": 0, // 单向持仓模式
+		"qty":         qtyStr,
+		"positionIdx": 0, // One-way position mode
 	}
 
 	result, err := t.client.NewUtaBybitServiceWithParams(params).PlaceOrder(context.Background())
 	if err != nil {
-		return nil, fmt.Errorf("Bybit 开多失败: %w", err)
+		return nil, fmt.Errorf("Bybit open long failed: %w", err)
 	}
 
-	// 清除缓存
+	// Clear cache
 	t.clearCache()
 
 	return t.parseOrderResult(result)
 }
 
-// OpenShort 开空仓
+// OpenShort opens a short position
 func (t *BybitTrader) OpenShort(symbol string, quantity float64, leverage int) (map[string]interface{}, error) {
-	// 先设置杠杆
+	// Set leverage first
 	if err := t.SetLeverage(symbol, leverage); err != nil {
-		log.Printf("⚠️ [Bybit] 设置杠杆失败: %v", err)
+		logger.Infof("⚠️ [Bybit] Failed to set leverage: %v", err)
 	}
+
+	// Use FormatQuantity to format quantity
+	qtyStr, _ := t.FormatQuantity(symbol, quantity)
 
 	params := map[string]interface{}{
 		"category":    "linear",
 		"symbol":      symbol,
 		"side":        "Sell",
 		"orderType":   "Market",
-		"qty":         fmt.Sprintf("%v", quantity),
-		"positionIdx": 0, // 单向持仓模式
+		"qty":         qtyStr,
+		"positionIdx": 0, // One-way position mode
 	}
 
 	result, err := t.client.NewUtaBybitServiceWithParams(params).PlaceOrder(context.Background())
 	if err != nil {
-		return nil, fmt.Errorf("Bybit 开空失败: %w", err)
+		return nil, fmt.Errorf("Bybit open short failed: %w", err)
 	}
 
-	// 清除缓存
+	// Clear cache
 	t.clearCache()
 
 	return t.parseOrderResult(result)
 }
 
-// CloseLong 平多仓
+// CloseLong closes a long position
 func (t *BybitTrader) CloseLong(symbol string, quantity float64) (map[string]interface{}, error) {
-	// 如果 quantity = 0，获取当前持仓数量
+	// If quantity = 0, get current position quantity
 	if quantity == 0 {
 		positions, err := t.GetPositions()
 		if err != nil {
@@ -291,33 +331,36 @@ func (t *BybitTrader) CloseLong(symbol string, quantity float64) (map[string]int
 	}
 
 	if quantity <= 0 {
-		return nil, fmt.Errorf("没有多仓可平")
+		return nil, fmt.Errorf("no long position to close")
 	}
+
+	// Use FormatQuantity to format quantity
+	qtyStr, _ := t.FormatQuantity(symbol, quantity)
 
 	params := map[string]interface{}{
 		"category":    "linear",
 		"symbol":      symbol,
-		"side":        "Sell", // 平多用 Sell
+		"side":        "Sell", // Close long with Sell
 		"orderType":   "Market",
-		"qty":         fmt.Sprintf("%v", quantity),
+		"qty":         qtyStr,
 		"positionIdx": 0,
 		"reduceOnly":  true,
 	}
 
 	result, err := t.client.NewUtaBybitServiceWithParams(params).PlaceOrder(context.Background())
 	if err != nil {
-		return nil, fmt.Errorf("Bybit 平多失败: %w", err)
+		return nil, fmt.Errorf("Bybit close long failed: %w", err)
 	}
 
-	// 清除缓存
+	// Clear cache
 	t.clearCache()
 
 	return t.parseOrderResult(result)
 }
 
-// CloseShort 平空仓
+// CloseShort closes a short position
 func (t *BybitTrader) CloseShort(symbol string, quantity float64) (map[string]interface{}, error) {
-	// 如果 quantity = 0，获取当前持仓数量
+	// If quantity = 0, get current position quantity
 	if quantity == 0 {
 		positions, err := t.GetPositions()
 		if err != nil {
@@ -325,38 +368,41 @@ func (t *BybitTrader) CloseShort(symbol string, quantity float64) (map[string]in
 		}
 		for _, pos := range positions {
 			if pos["symbol"] == symbol && pos["side"] == "SHORT" {
-				quantity = -pos["positionAmt"].(float64) // 空仓是负数
+				quantity = -pos["positionAmt"].(float64) // Short position is negative
 				break
 			}
 		}
 	}
 
 	if quantity <= 0 {
-		return nil, fmt.Errorf("没有空仓可平")
+		return nil, fmt.Errorf("no short position to close")
 	}
+
+	// Use FormatQuantity to format quantity
+	qtyStr, _ := t.FormatQuantity(symbol, quantity)
 
 	params := map[string]interface{}{
 		"category":    "linear",
 		"symbol":      symbol,
-		"side":        "Buy", // 平空用 Buy
+		"side":        "Buy", // Close short with Buy
 		"orderType":   "Market",
-		"qty":         fmt.Sprintf("%v", quantity),
+		"qty":         qtyStr,
 		"positionIdx": 0,
 		"reduceOnly":  true,
 	}
 
 	result, err := t.client.NewUtaBybitServiceWithParams(params).PlaceOrder(context.Background())
 	if err != nil {
-		return nil, fmt.Errorf("Bybit 平空失败: %w", err)
+		return nil, fmt.Errorf("Bybit close short failed: %w", err)
 	}
 
-	// 清除缓存
+	// Clear cache
 	t.clearCache()
 
 	return t.parseOrderResult(result)
 }
 
-// SetLeverage 设置杠杆
+// SetLeverage sets leverage
 func (t *BybitTrader) SetLeverage(symbol string, leverage int) error {
 	params := map[string]interface{}{
 		"category":     "linear",
@@ -367,25 +413,25 @@ func (t *BybitTrader) SetLeverage(symbol string, leverage int) error {
 
 	result, err := t.client.NewUtaBybitServiceWithParams(params).SetPositionLeverage(context.Background())
 	if err != nil {
-		// 如果杠杆已经是目标值，Bybit 会返回错误，忽略这种情况
+		// If leverage is already at target value, Bybit will return an error, ignore this case
 		if strings.Contains(err.Error(), "leverage not modified") {
 			return nil
 		}
-		return fmt.Errorf("设置杠杆失败: %w", err)
+		return fmt.Errorf("failed to set leverage: %w", err)
 	}
 
 	if result.RetCode != 0 && result.RetCode != 110043 { // 110043 = leverage not modified
-		return fmt.Errorf("设置杠杆失败: %s", result.RetMsg)
+		return fmt.Errorf("failed to set leverage: %s", result.RetMsg)
 	}
 
 	return nil
 }
 
-// SetMarginMode 设置仓位模式
+// SetMarginMode sets position margin mode
 func (t *BybitTrader) SetMarginMode(symbol string, isCrossMargin bool) error {
-	tradeMode := 1 // 逐仓
+	tradeMode := 1 // Isolated margin
 	if isCrossMargin {
-		tradeMode = 0 // 全仓
+		tradeMode = 0 // Cross margin
 	}
 
 	params := map[string]interface{}{
@@ -399,17 +445,17 @@ func (t *BybitTrader) SetMarginMode(symbol string, isCrossMargin bool) error {
 		if strings.Contains(err.Error(), "Cross/isolated margin mode is not modified") {
 			return nil
 		}
-		return fmt.Errorf("设置保证金模式失败: %w", err)
+		return fmt.Errorf("failed to set margin mode: %w", err)
 	}
 
 	if result.RetCode != 0 && result.RetCode != 110026 { // already in target mode
-		return fmt.Errorf("设置保证金模式失败: %s", result.RetMsg)
+		return fmt.Errorf("failed to set margin mode: %s", result.RetMsg)
 	}
 
 	return nil
 }
 
-// GetMarketPrice 获取市场价格
+// GetMarketPrice retrieves market price
 func (t *BybitTrader) GetMarketPrice(symbol string) (float64, error) {
 	params := map[string]interface{}{
 		"category": "linear",
@@ -418,58 +464,61 @@ func (t *BybitTrader) GetMarketPrice(symbol string) (float64, error) {
 
 	result, err := t.client.NewUtaBybitServiceWithParams(params).GetMarketTickers(context.Background())
 	if err != nil {
-		return 0, fmt.Errorf("获取市场价格失败: %w", err)
+		return 0, fmt.Errorf("failed to get market price: %w", err)
 	}
 
 	if result.RetCode != 0 {
-		return 0, fmt.Errorf("API 错误: %s", result.RetMsg)
+		return 0, fmt.Errorf("API error: %s", result.RetMsg)
 	}
 
 	resultData, ok := result.Result.(map[string]interface{})
 	if !ok {
-		return 0, fmt.Errorf("返回格式错误")
+		return 0, fmt.Errorf("return format error")
 	}
 
 	list, _ := resultData["list"].([]interface{})
 
 	if len(list) == 0 {
-		return 0, fmt.Errorf("未找到 %s 的价格数据", symbol)
+		return 0, fmt.Errorf("price data not found for %s", symbol)
 	}
 
 	ticker, _ := list[0].(map[string]interface{})
 	lastPriceStr, _ := ticker["lastPrice"].(string)
 	lastPrice, err := strconv.ParseFloat(lastPriceStr, 64)
 	if err != nil {
-		return 0, fmt.Errorf("解析价格失败: %w", err)
+		return 0, fmt.Errorf("failed to parse price: %w", err)
 	}
 
 	return lastPrice, nil
 }
 
-// SetStopLoss 设置止损单
+// SetStopLoss sets stop loss order
 func (t *BybitTrader) SetStopLoss(symbol string, positionSide string, quantity, stopPrice float64) error {
-	side := "Sell" // LONG 止损用 Sell
+	side := "Sell" // LONG stop loss uses Sell
 	if positionSide == "SHORT" {
-		side = "Buy" // SHORT 止损用 Buy
+		side = "Buy" // SHORT stop loss uses Buy
 	}
 
-	// 获取当前价格来确定 triggerDirection
+	// Get current price to determine triggerDirection
 	currentPrice, err := t.GetMarketPrice(symbol)
 	if err != nil {
 		return err
 	}
 
-	triggerDirection := 2 // 价格下跌触发（默认多单止损）
+	triggerDirection := 2 // Price fall trigger (default long stop loss)
 	if stopPrice > currentPrice {
-		triggerDirection = 1 // 价格上涨触发（空单止损）
+		triggerDirection = 1 // Price rise trigger (short stop loss)
 	}
+
+	// Use FormatQuantity to format quantity
+	qtyStr, _ := t.FormatQuantity(symbol, quantity)
 
 	params := map[string]interface{}{
 		"category":         "linear",
 		"symbol":           symbol,
 		"side":             side,
 		"orderType":        "Market",
-		"qty":              fmt.Sprintf("%v", quantity),
+		"qty":              qtyStr,
 		"triggerPrice":     fmt.Sprintf("%v", stopPrice),
 		"triggerDirection": triggerDirection,
 		"triggerBy":        "LastPrice",
@@ -478,41 +527,44 @@ func (t *BybitTrader) SetStopLoss(symbol string, positionSide string, quantity, 
 
 	result, err := t.client.NewUtaBybitServiceWithParams(params).PlaceOrder(context.Background())
 	if err != nil {
-		return fmt.Errorf("设置止损失败: %w", err)
+		return fmt.Errorf("failed to set stop loss: %w", err)
 	}
 
 	if result.RetCode != 0 {
-		return fmt.Errorf("设置止损失败: %s", result.RetMsg)
+		return fmt.Errorf("failed to set stop loss: %s", result.RetMsg)
 	}
 
-	log.Printf("  ✓ [Bybit] 止损单已设置: %s @ %.2f", symbol, stopPrice)
+	logger.Infof("  ✓ [Bybit] Stop loss order set: %s @ %.2f", symbol, stopPrice)
 	return nil
 }
 
-// SetTakeProfit 设置止盈单
+// SetTakeProfit sets take profit order
 func (t *BybitTrader) SetTakeProfit(symbol string, positionSide string, quantity, takeProfitPrice float64) error {
-	side := "Sell" // LONG 止盈用 Sell
+	side := "Sell" // LONG take profit uses Sell
 	if positionSide == "SHORT" {
-		side = "Buy" // SHORT 止盈用 Buy
+		side = "Buy" // SHORT take profit uses Buy
 	}
 
-	// 获取当前价格来确定 triggerDirection
+	// Get current price to determine triggerDirection
 	currentPrice, err := t.GetMarketPrice(symbol)
 	if err != nil {
 		return err
 	}
 
-	triggerDirection := 1 // 价格上涨触发（默认多单止盈）
+	triggerDirection := 1 // Price rise trigger (default long take profit)
 	if takeProfitPrice < currentPrice {
-		triggerDirection = 2 // 价格下跌触发（空单止盈）
+		triggerDirection = 2 // Price fall trigger (short take profit)
 	}
+
+	// Use FormatQuantity to format quantity
+	qtyStr, _ := t.FormatQuantity(symbol, quantity)
 
 	params := map[string]interface{}{
 		"category":         "linear",
 		"symbol":           symbol,
 		"side":             side,
 		"orderType":        "Market",
-		"qty":              fmt.Sprintf("%v", quantity),
+		"qty":              qtyStr,
 		"triggerPrice":     fmt.Sprintf("%v", takeProfitPrice),
 		"triggerDirection": triggerDirection,
 		"triggerBy":        "LastPrice",
@@ -521,28 +573,28 @@ func (t *BybitTrader) SetTakeProfit(symbol string, positionSide string, quantity
 
 	result, err := t.client.NewUtaBybitServiceWithParams(params).PlaceOrder(context.Background())
 	if err != nil {
-		return fmt.Errorf("设置止盈失败: %w", err)
+		return fmt.Errorf("failed to set take profit: %w", err)
 	}
 
 	if result.RetCode != 0 {
-		return fmt.Errorf("设置止盈失败: %s", result.RetMsg)
+		return fmt.Errorf("failed to set take profit: %s", result.RetMsg)
 	}
 
-	log.Printf("  ✓ [Bybit] 止盈单已设置: %s @ %.2f", symbol, takeProfitPrice)
+	logger.Infof("  ✓ [Bybit] Take profit order set: %s @ %.2f", symbol, takeProfitPrice)
 	return nil
 }
 
-// CancelStopLossOrders 取消止损单
+// CancelStopLossOrders cancels stop loss orders
 func (t *BybitTrader) CancelStopLossOrders(symbol string) error {
 	return t.cancelConditionalOrders(symbol, "StopLoss")
 }
 
-// CancelTakeProfitOrders 取消止盈单
+// CancelTakeProfitOrders cancels take profit orders
 func (t *BybitTrader) CancelTakeProfitOrders(symbol string) error {
 	return t.cancelConditionalOrders(symbol, "TakeProfit")
 }
 
-// CancelAllOrders 取消所有挂单
+// CancelAllOrders cancels all pending orders
 func (t *BybitTrader) CancelAllOrders(symbol string) error {
 	params := map[string]interface{}{
 		"category": "linear",
@@ -551,30 +603,106 @@ func (t *BybitTrader) CancelAllOrders(symbol string) error {
 
 	_, err := t.client.NewUtaBybitServiceWithParams(params).CancelAllOrders(context.Background())
 	if err != nil {
-		return fmt.Errorf("取消所有订单失败: %w", err)
+		return fmt.Errorf("failed to cancel all orders: %w", err)
 	}
 
 	return nil
 }
 
-// CancelStopOrders 取消所有止盈止损单
+// CancelStopOrders cancels all stop loss and take profit orders
 func (t *BybitTrader) CancelStopOrders(symbol string) error {
 	if err := t.CancelStopLossOrders(symbol); err != nil {
-		log.Printf("⚠️ [Bybit] 取消止损单失败: %v", err)
+		logger.Infof("⚠️ [Bybit] Failed to cancel stop loss orders: %v", err)
 	}
 	if err := t.CancelTakeProfitOrders(symbol); err != nil {
-		log.Printf("⚠️ [Bybit] 取消止盈单失败: %v", err)
+		logger.Infof("⚠️ [Bybit] Failed to cancel take profit orders: %v", err)
 	}
 	return nil
 }
 
-// FormatQuantity 格式化数量
-func (t *BybitTrader) FormatQuantity(symbol string, quantity float64) (string, error) {
-	// Bybit 通常使用 3 位小数
-	return fmt.Sprintf("%.3f", quantity), nil
+// getQtyStep retrieves the quantity step for a trading pair
+func (t *BybitTrader) getQtyStep(symbol string) float64 {
+	// Check cache first
+	t.qtyStepCacheMutex.RLock()
+	if step, ok := t.qtyStepCache[symbol]; ok {
+		t.qtyStepCacheMutex.RUnlock()
+		return step
+	}
+	t.qtyStepCacheMutex.RUnlock()
+
+	// Call public API directly to get contract information
+	url := fmt.Sprintf("https://api.bybit.com/v5/market/instruments-info?category=linear&symbol=%s", symbol)
+	resp, err := http.Get(url)
+	if err != nil {
+		logger.Infof("⚠️ [Bybit] Failed to get precision info for %s: %v", symbol, err)
+		return 1 // Default to integer
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 1
+	}
+
+	var result struct {
+		RetCode int `json:"retCode"`
+		Result  struct {
+			List []struct {
+				LotSizeFilter struct {
+					QtyStep string `json:"qtyStep"`
+				} `json:"lotSizeFilter"`
+			} `json:"list"`
+		} `json:"result"`
+	}
+
+	if err := json.Unmarshal(body, &result); err != nil {
+		return 1
+	}
+
+	if result.RetCode != 0 || len(result.Result.List) == 0 {
+		return 1
+	}
+
+	qtyStep, _ := strconv.ParseFloat(result.Result.List[0].LotSizeFilter.QtyStep, 64)
+	if qtyStep <= 0 {
+		qtyStep = 1
+	}
+
+	// Cache result
+	t.qtyStepCacheMutex.Lock()
+	t.qtyStepCache[symbol] = qtyStep
+	t.qtyStepCacheMutex.Unlock()
+
+	logger.Infof("🔵 [Bybit] %s qtyStep: %v", symbol, qtyStep)
+
+	return qtyStep
 }
 
-// 辅助方法
+// FormatQuantity formats quantity
+func (t *BybitTrader) FormatQuantity(symbol string, quantity float64) (string, error) {
+	// Get qtyStep for this symbol
+	qtyStep := t.getQtyStep(symbol)
+
+	// Align quantity according to qtyStep (round down to nearest step)
+	alignedQty := math.Floor(quantity/qtyStep) * qtyStep
+
+	// Calculate required decimal places
+	decimals := 0
+	if qtyStep < 1 {
+		stepStr := strconv.FormatFloat(qtyStep, 'f', -1, 64)
+		if idx := strings.Index(stepStr, "."); idx >= 0 {
+			decimals = len(stepStr) - idx - 1
+		}
+	}
+
+	// Format
+	format := fmt.Sprintf("%%.%df", decimals)
+	formatted := fmt.Sprintf(format, alignedQty)
+
+	return formatted, nil
+}
+
+// Helper methods
 
 func (t *BybitTrader) clearCache() {
 	t.balanceCacheMutex.Lock()
@@ -588,12 +716,12 @@ func (t *BybitTrader) clearCache() {
 
 func (t *BybitTrader) parseOrderResult(result *bybit.ServerResponse) (map[string]interface{}, error) {
 	if result.RetCode != 0 {
-		return nil, fmt.Errorf("下单失败: %s", result.RetMsg)
+		return nil, fmt.Errorf("order placement failed: %s", result.RetMsg)
 	}
 
 	resultData, ok := result.Result.(map[string]interface{})
 	if !ok {
-		return nil, fmt.Errorf("返回格式错误")
+		return nil, fmt.Errorf("return format error")
 	}
 
 	orderId, _ := resultData["orderId"].(string)
@@ -604,21 +732,82 @@ func (t *BybitTrader) parseOrderResult(result *bybit.ServerResponse) (map[string
 	}, nil
 }
 
+// GetOrderStatus retrieves order status
+func (t *BybitTrader) GetOrderStatus(symbol string, orderID string) (map[string]interface{}, error) {
+	params := map[string]interface{}{
+		"category": "linear",
+		"symbol":   symbol,
+		"orderId":  orderID,
+	}
+
+	result, err := t.client.NewUtaBybitServiceWithParams(params).GetOrderHistory(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("failed to get order status: %w", err)
+	}
+
+	if result.RetCode != 0 {
+		return nil, fmt.Errorf("API error: %s", result.RetMsg)
+	}
+
+	resultData, ok := result.Result.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("return format error")
+	}
+
+	list, _ := resultData["list"].([]interface{})
+	if len(list) == 0 {
+		return nil, fmt.Errorf("order %s not found", orderID)
+	}
+
+	order, _ := list[0].(map[string]interface{})
+
+	// Parse order data
+	status, _ := order["orderStatus"].(string)
+	avgPriceStr, _ := order["avgPrice"].(string)
+	cumExecQtyStr, _ := order["cumExecQty"].(string)
+	cumExecFeeStr, _ := order["cumExecFee"].(string)
+
+	avgPrice, _ := strconv.ParseFloat(avgPriceStr, 64)
+	executedQty, _ := strconv.ParseFloat(cumExecQtyStr, 64)
+	commission, _ := strconv.ParseFloat(cumExecFeeStr, 64)
+
+	// Convert status to unified format
+	unifiedStatus := status
+	switch status {
+	case "Filled":
+		unifiedStatus = "FILLED"
+	case "New", "Created":
+		unifiedStatus = "NEW"
+	case "Cancelled", "Rejected":
+		unifiedStatus = "CANCELED"
+	case "PartiallyFilled":
+		unifiedStatus = "PARTIALLY_FILLED"
+	}
+
+	return map[string]interface{}{
+		"orderId":     orderID,
+		"status":      unifiedStatus,
+		"avgPrice":    avgPrice,
+		"executedQty": executedQty,
+		"commission":  commission,
+	}, nil
+}
+
 func (t *BybitTrader) cancelConditionalOrders(symbol string, orderType string) error {
-	// 先获取所有条件单
+	// First get all conditional orders
 	params := map[string]interface{}{
 		"category":    "linear",
 		"symbol":      symbol,
-		"orderFilter": "StopOrder", // 条件单
+		"orderFilter": "StopOrder", // Conditional orders
 	}
 
 	result, err := t.client.NewUtaBybitServiceWithParams(params).GetOpenOrders(context.Background())
 	if err != nil {
-		return fmt.Errorf("获取条件单失败: %w", err)
+		return fmt.Errorf("failed to get conditional orders: %w", err)
 	}
 
 	if result.RetCode != 0 {
-		return nil // 没有订单
+		return nil // No orders
 	}
 
 	resultData, ok := result.Result.(map[string]interface{})
@@ -628,7 +817,7 @@ func (t *BybitTrader) cancelConditionalOrders(symbol string, orderType string) e
 
 	list, _ := resultData["list"].([]interface{})
 
-	// 取消匹配的订单
+	// Cancel matching orders
 	for _, item := range list {
 		order, ok := item.(map[string]interface{})
 		if !ok {
@@ -638,7 +827,7 @@ func (t *BybitTrader) cancelConditionalOrders(symbol string, orderType string) e
 		orderId, _ := order["orderId"].(string)
 		stopOrderType, _ := order["stopOrderType"].(string)
 
-		// 根据类型筛选
+		// Filter by type
 		shouldCancel := false
 		if orderType == "StopLoss" && (stopOrderType == "StopLoss" || stopOrderType == "Stop") {
 			shouldCancel = true

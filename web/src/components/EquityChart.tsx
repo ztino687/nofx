@@ -33,14 +33,15 @@ interface EquityPoint {
 
 interface EquityChartProps {
   traderId?: string
+  embedded?: boolean // 嵌入模式（不显示外层卡片）
 }
 
-export function EquityChart({ traderId }: EquityChartProps) {
+export function EquityChart({ traderId, embedded = false }: EquityChartProps) {
   const { language } = useLanguage()
   const { user, token } = useAuth()
   const [displayMode, setDisplayMode] = useState<'dollar' | 'percent'>('dollar')
 
-  const { data: history, error } = useSWR<EquityPoint[]>(
+  const { data: history, error, isLoading } = useSWR<EquityPoint[]>(
     user && token && traderId ? `equity-history-${traderId}` : null,
     () => api.getEquityHistory(traderId),
     {
@@ -60,9 +61,25 @@ export function EquityChart({ traderId }: EquityChartProps) {
     }
   )
 
+  // Loading state - show skeleton
+  if (isLoading) {
+    return (
+      <div className={embedded ? 'p-6' : 'binance-card p-6'}>
+        {!embedded && (
+          <h3 className="text-lg font-semibold mb-6" style={{ color: '#EAECEF' }}>
+            {t('accountEquityCurve', language)}
+          </h3>
+        )}
+        <div className="animate-pulse">
+          <div className="skeleton h-64 w-full rounded"></div>
+        </div>
+      </div>
+    )
+  }
+
   if (error) {
     return (
-      <div className="binance-card p-6">
+      <div className={embedded ? 'p-6' : 'binance-card p-6'}>
         <div
           className="flex items-center gap-3 p-4 rounded"
           style={{
@@ -89,10 +106,12 @@ export function EquityChart({ traderId }: EquityChartProps) {
 
   if (!validHistory || validHistory.length === 0) {
     return (
-      <div className="binance-card p-6">
-        <h3 className="text-lg font-semibold mb-6" style={{ color: '#EAECEF' }}>
-          {t('accountEquityCurve', language)}
-        </h3>
+      <div className={embedded ? 'p-6' : 'binance-card p-6'}>
+        {!embedded && (
+          <h3 className="text-lg font-semibold mb-6" style={{ color: '#EAECEF' }}>
+            {t('accountEquityCurve', language)}
+          </h3>
+        )}
         <div className="text-center py-16" style={{ color: '#848E9C' }}>
           <div className="mb-4 flex justify-center opacity-50">
             <BarChart3 className="w-16 h-16" />
@@ -193,16 +212,18 @@ export function EquityChart({ traderId }: EquityChartProps) {
   }
 
   return (
-    <div className="binance-card p-3 sm:p-5 animate-fade-in">
+    <div className={embedded ? 'p-3 sm:p-5' : 'binance-card p-3 sm:p-5 animate-fade-in'}>
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
         <div className="flex-1">
-          <h3
-            className="text-base sm:text-lg font-bold mb-2"
-            style={{ color: '#EAECEF' }}
-          >
-            {t('accountEquityCurve', language)}
-          </h3>
+          {!embedded && (
+            <h3
+              className="text-base sm:text-lg font-bold mb-2"
+              style={{ color: '#EAECEF' }}
+            >
+              {t('accountEquityCurve', language)}
+            </h3>
+          )}
           <div className="flex flex-col sm:flex-row sm:items-baseline gap-2 sm:gap-4">
             <span
               className="text-2xl sm:text-3xl font-bold mono"

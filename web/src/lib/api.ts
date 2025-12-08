@@ -19,6 +19,8 @@ import type {
   BacktestTradeEvent,
   BacktestMetrics,
   BacktestRunMetadata,
+  Strategy,
+  StrategyConfig,
 } from '../types'
 import { CryptoService } from './crypto'
 import { httpClient } from './httpClient'
@@ -98,6 +100,15 @@ export const api = {
   async stopTrader(traderId: string): Promise<void> {
     const result = await httpClient.post(`${API_BASE}/traders/${traderId}/stop`)
     if (!result.success) throw new Error('停止交易员失败')
+  },
+
+  async closePosition(traderId: string, symbol: string, side: string): Promise<{ message: string }> {
+    const result = await httpClient.post<{ message: string }>(
+      `${API_BASE}/traders/${traderId}/close-position`,
+      { symbol, side }
+    )
+    if (!result.success) throw new Error('平仓失败')
+    return result.data!
   },
 
   async updateTraderPrompt(
@@ -337,16 +348,6 @@ export const api = {
     return result.data!
   },
 
-  // 获取AI学习表现分析（支持trader_id）
-  async getPerformance(traderId?: string): Promise<any> {
-    const url = traderId
-      ? `${API_BASE}/performance?trader_id=${traderId}`
-      : `${API_BASE}/performance`
-    const result = await httpClient.get<any>(url)
-    if (!result.success) throw new Error('获取AI学习数据失败')
-    return result.data!
-  },
-
   // 获取竞赛数据（无需认证）
   async getCompetition(): Promise<CompetitionData> {
     const result = await httpClient.get<CompetitionData>(
@@ -354,30 +355,6 @@ export const api = {
     )
     if (!result.success) throw new Error('获取竞赛数据失败')
     return result.data!
-  },
-
-  // 用户信号源配置接口
-  async getUserSignalSource(): Promise<{
-    coin_pool_url: string
-    oi_top_url: string
-  }> {
-    const result = await httpClient.get<{
-      coin_pool_url: string
-      oi_top_url: string
-    }>(`${API_BASE}/user/signal-sources`)
-    if (!result.success) throw new Error('获取用户信号源配置失败')
-    return result.data!
-  },
-
-  async saveUserSignalSource(
-    coinPoolUrl: string,
-    oiTopUrl: string
-  ): Promise<void> {
-    const result = await httpClient.post(`${API_BASE}/user/signal-sources`, {
-      coin_pool_url: coinPoolUrl,
-      oi_top_url: oiTopUrl,
-    })
-    if (!result.success) throw new Error('保存用户信号源配置失败')
   },
 
   // 获取服务器IP（需要认证，用于白名单配置）
@@ -562,5 +539,70 @@ export const api = {
       }
     }
     return res.blob()
+  },
+
+  // Strategy APIs
+  async getStrategies(): Promise<Strategy[]> {
+    const result = await httpClient.get<Strategy[]>(`${API_BASE}/strategies`)
+    if (!result.success) throw new Error('获取策略列表失败')
+    return result.data!
+  },
+
+  async getStrategy(strategyId: string): Promise<Strategy> {
+    const result = await httpClient.get<Strategy>(`${API_BASE}/strategies/${strategyId}`)
+    if (!result.success) throw new Error('获取策略失败')
+    return result.data!
+  },
+
+  async getActiveStrategy(): Promise<Strategy> {
+    const result = await httpClient.get<Strategy>(`${API_BASE}/strategies/active`)
+    if (!result.success) throw new Error('获取激活策略失败')
+    return result.data!
+  },
+
+  async getDefaultStrategyConfig(): Promise<StrategyConfig> {
+    const result = await httpClient.get<StrategyConfig>(`${API_BASE}/strategies/default-config`)
+    if (!result.success) throw new Error('获取默认策略配置失败')
+    return result.data!
+  },
+
+  async createStrategy(data: {
+    name: string
+    description: string
+    config: StrategyConfig
+  }): Promise<Strategy> {
+    const result = await httpClient.post<Strategy>(`${API_BASE}/strategies`, data)
+    if (!result.success) throw new Error('创建策略失败')
+    return result.data!
+  },
+
+  async updateStrategy(
+    strategyId: string,
+    data: {
+      name?: string
+      description?: string
+      config?: StrategyConfig
+    }
+  ): Promise<Strategy> {
+    const result = await httpClient.put<Strategy>(`${API_BASE}/strategies/${strategyId}`, data)
+    if (!result.success) throw new Error('更新策略失败')
+    return result.data!
+  },
+
+  async deleteStrategy(strategyId: string): Promise<void> {
+    const result = await httpClient.delete(`${API_BASE}/strategies/${strategyId}`)
+    if (!result.success) throw new Error('删除策略失败')
+  },
+
+  async activateStrategy(strategyId: string): Promise<Strategy> {
+    const result = await httpClient.post<Strategy>(`${API_BASE}/strategies/${strategyId}/activate`)
+    if (!result.success) throw new Error('激活策略失败')
+    return result.data!
+  },
+
+  async duplicateStrategy(strategyId: string): Promise<Strategy> {
+    const result = await httpClient.post<Strategy>(`${API_BASE}/strategies/${strategyId}/duplicate`)
+    if (!result.success) throw new Error('复制策略失败')
+    return result.data!
   },
 }
