@@ -1,26 +1,38 @@
-import { Bot, BarChart3, Trash2, Pencil } from 'lucide-react'
+import { Bot, BarChart3, Trash2, Pencil, Eye, EyeOff } from 'lucide-react'
 import { t, type Language } from '../../../i18n/translations'
 import { getModelDisplayName } from '../index'
-import type { TraderInfo } from '../../../types'
+import type { TraderInfo, Exchange } from '../../../types'
 import { PunkAvatar, getTraderAvatar } from '../../PunkAvatar'
 
 interface TradersGridProps {
   language: Language
   traders: TraderInfo[] | undefined
+  exchanges?: Exchange[]
   onTraderSelect: (traderId: string) => void
   onEditTrader: (traderId: string) => void
   onDeleteTrader: (traderId: string) => void
   onToggleTrader: (traderId: string, running: boolean) => void
+  onToggleCompetition?: (traderId: string, showInCompetition: boolean) => void
 }
 
 export function TradersGrid({
   language,
   traders,
+  exchanges = [],
   onTraderSelect,
   onEditTrader,
   onDeleteTrader,
   onToggleTrader,
+  onToggleCompetition,
 }: TradersGridProps) {
+  // Helper function to get exchange display name
+  const getExchangeDisplayName = (exchangeId: string | undefined) => {
+    if (!exchangeId) return 'Unknown'
+    const exchange = exchanges.find(e => e.id === exchangeId)
+    if (!exchange) return exchangeId.toUpperCase()
+    const typeName = exchange.exchange_type?.toUpperCase() || exchange.name
+    return exchange.account_name ? `${typeName} - ${exchange.account_name}` : typeName
+  }
   if (!traders || traders.length === 0) {
     return (
       <div className="text-center py-12 md:py-16" style={{ color: '#848E9C' }}>
@@ -74,7 +86,7 @@ export function TradersGrid({
                 {getModelDisplayName(
                   trader.ai_model.split('_').pop() || trader.ai_model
                 )}{' '}
-                Model • {trader.exchange_id?.toUpperCase()}
+                Model • {getExchangeDisplayName(trader.exchange_id)}
                 <span style={{ color: '#F0B90B' }}> • {trader.strategy_name || 'No Strategy'}</span>
               </div>
             </div>
@@ -155,6 +167,31 @@ export function TradersGrid({
               >
                 {trader.is_running ? t('stop', language) : t('start', language)}
               </button>
+
+              {onToggleCompetition && (
+                <button
+                  onClick={() => onToggleCompetition(trader.trader_id, trader.show_in_competition ?? true)}
+                  className="px-2 md:px-3 py-1.5 md:py-2 rounded text-xs md:text-sm font-semibold transition-all hover:scale-105 whitespace-nowrap flex items-center gap-1"
+                  style={
+                    trader.show_in_competition !== false
+                      ? {
+                          background: 'rgba(14, 203, 129, 0.1)',
+                          color: '#0ECB81',
+                        }
+                      : {
+                          background: 'rgba(132, 142, 156, 0.1)',
+                          color: '#848E9C',
+                        }
+                  }
+                  title={trader.show_in_competition !== false ? '在竞技场显示' : '在竞技场隐藏'}
+                >
+                  {trader.show_in_competition !== false ? (
+                    <Eye className="w-3 h-3 md:w-4 md:h-4" />
+                  ) : (
+                    <EyeOff className="w-3 h-3 md:w-4 md:h-4" />
+                  )}
+                </button>
+              )}
 
               <button
                 onClick={() => onDeleteTrader(trader.trader_id)}
