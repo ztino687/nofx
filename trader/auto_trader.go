@@ -22,7 +22,7 @@ type AutoTraderConfig struct {
 	AIModel string // AI model: "qwen" or "deepseek"
 
 	// Trading platform selection
-	Exchange   string // Exchange type: "binance", "bybit", "okx", "hyperliquid", "aster" or "lighter"
+	Exchange   string // Exchange type: "binance", "bybit", "okx", "bitget", "hyperliquid", "aster" or "lighter"
 	ExchangeID string // Exchange account UUID (for multi-account support)
 
 	// 测试网
@@ -40,6 +40,11 @@ type AutoTraderConfig struct {
 	OKXAPIKey    string
 	OKXSecretKey string
 	OKXPassphrase string
+
+	// Bitget API configuration
+	BitgetAPIKey    string
+	BitgetSecretKey string
+	BitgetPassphrase string
 
 	// Hyperliquid configuration
 	HyperliquidPrivateKey string
@@ -225,6 +230,9 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 	case "okx":
 		logger.Infof("🏦 [%s] Using OKX Futures trading", config.Name)
 		trader = NewOKXTrader(config.OKXAPIKey, config.OKXSecretKey, config.OKXPassphrase)
+	case "bitget":
+		logger.Infof("🏦 [%s] Using Bitget Futures trading", config.Name)
+		trader = NewBitgetTrader(config.BitgetAPIKey, config.BitgetSecretKey, config.BitgetPassphrase)
 	case "hyperliquid":
 		logger.Infof("🏦 [%s] Using Hyperliquid trading", config.Name)
 		trader, err = NewHyperliquidTrader(config.HyperliquidPrivateKey, config.HyperliquidWalletAddr, config.HyperliquidTestnet)
@@ -774,6 +782,16 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 		logger.Infof("📊 [%s] Fetching quantitative data for %d symbols...", at.name, len(symbols))
 		ctx.QuantDataMap = at.strategyEngine.FetchQuantDataBatch(symbols)
 		logger.Infof("📊 [%s] Successfully fetched quantitative data for %d symbols", at.name, len(ctx.QuantDataMap))
+	}
+
+	// 9. Get OI ranking data (market-wide position changes)
+	if strategyConfig.Indicators.EnableOIRanking {
+		logger.Infof("📊 [%s] Fetching OI ranking data...", at.name)
+		ctx.OIRankingData = at.strategyEngine.FetchOIRankingData()
+		if ctx.OIRankingData != nil {
+			logger.Infof("📊 [%s] OI ranking data ready: %d top, %d low positions",
+				at.name, len(ctx.OIRankingData.TopPositions), len(ctx.OIRankingData.LowPositions))
+		}
 	}
 
 	return ctx, nil

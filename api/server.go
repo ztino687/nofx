@@ -581,6 +581,12 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 				exchangeCfg.SecretKey,
 				exchangeCfg.Passphrase,
 			)
+		case "bitget":
+			tempTrader = trader.NewBitgetTrader(
+				exchangeCfg.APIKey,
+				exchangeCfg.SecretKey,
+				exchangeCfg.Passphrase,
+			)
 		case "lighter":
 			if exchangeCfg.LighterAPIKeyPrivateKey != "" {
 				tempTrader, createErr = trader.NewLighterTraderV2(
@@ -792,19 +798,24 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 	}
 
 	// Update database
+	logger.Infof("🔄 Updating trader: ID=%s, Name=%s, AIModelID=%s, StrategyID=%s, req.StrategyID=%s",
+		traderRecord.ID, traderRecord.Name, traderRecord.AIModelID, traderRecord.StrategyID, req.StrategyID)
 	err = s.store.Trader().Update(traderRecord)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to update trader: %v", err)})
 		return
 	}
 
-	// Reload traders into memory
+	// Remove old trader from memory first to ensure fresh config is loaded
+	s.traderManager.RemoveTrader(traderID)
+
+	// Reload traders into memory with fresh config
 	err = s.traderManager.LoadUserTradersFromStore(s.store, userID)
 	if err != nil {
 		logger.Infof("⚠️ Failed to reload user traders into memory: %v", err)
 	}
 
-	logger.Infof("✓ Trader updated successfully: %s (model: %s, exchange: %s)", req.Name, req.AIModelID, req.ExchangeID)
+	logger.Infof("✓ Trader updated successfully: %s (model: %s, exchange: %s, strategy: %s)", req.Name, req.AIModelID, req.ExchangeID, strategyID)
 
 	c.JSON(http.StatusOK, gin.H{
 		"trader_id":   traderID,
@@ -854,54 +865,57 @@ func (s *Server) handleStartTrader(c *gin.Context) {
 		return
 	}
 
-	trader, err := s.traderManager.GetTrader(traderID)
-	if err != nil {
-		// Trader not in memory, try loading from database
-		logger.Infof("🔄 Trader %s not in memory, trying to load...", traderID)
-		if loadErr := s.traderManager.LoadUserTradersFromStore(s.store, userID); loadErr != nil {
-			logger.Infof("❌ Failed to load user traders: %v", loadErr)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load trader: " + loadErr.Error()})
+	// Check if trader exists in memory and if it's running
+	existingTrader, _ := s.traderManager.GetTrader(traderID)
+	if existingTrader != nil {
+		status := existingTrader.GetStatus()
+		if isRunning, ok := status["is_running"].(bool); ok && isRunning {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Trader is already running"})
 			return
 		}
-		// Try to get trader again
-		trader, err = s.traderManager.GetTrader(traderID)
-		if err != nil {
-			// Check detailed reason
-			fullCfg, _ := s.store.Trader().GetFullConfig(userID, traderID)
-			if fullCfg != nil && fullCfg.Trader != nil {
-				// Check strategy
-				if fullCfg.Strategy == nil {
-					c.JSON(http.StatusBadRequest, gin.H{"error": "Trader has no strategy configured, please create a strategy in Strategy Studio and associate it with the trader"})
-					return
-				}
-				// Check AI model
-				if fullCfg.AIModel == nil {
-					c.JSON(http.StatusBadRequest, gin.H{"error": "Trader's AI model does not exist, please check AI model configuration"})
-					return
-				}
-				if !fullCfg.AIModel.Enabled {
-					c.JSON(http.StatusBadRequest, gin.H{"error": "Trader's AI model is not enabled, please enable the AI model first"})
-					return
-				}
-				// Check exchange
-				if fullCfg.Exchange == nil {
-					c.JSON(http.StatusBadRequest, gin.H{"error": "Trader's exchange does not exist, please check exchange configuration"})
-					return
-				}
-				if !fullCfg.Exchange.Enabled {
-					c.JSON(http.StatusBadRequest, gin.H{"error": "Trader's exchange is not enabled, please enable the exchange first"})
-					return
-				}
-			}
-			c.JSON(http.StatusNotFound, gin.H{"error": "Failed to load trader, please check AI model, exchange and strategy configuration"})
-			return
-		}
+		// Trader exists but is stopped - remove from memory to reload fresh config
+		logger.Infof("🔄 Removing stopped trader %s from memory to reload config...", traderID)
+		s.traderManager.RemoveTrader(traderID)
 	}
 
-	// Check if trader is already running
-	status := trader.GetStatus()
-	if isRunning, ok := status["is_running"].(bool); ok && isRunning {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Trader is already running"})
+	// Load trader from database (always reload to get latest config)
+	logger.Infof("🔄 Loading trader %s from database...", traderID)
+	if loadErr := s.traderManager.LoadUserTradersFromStore(s.store, userID); loadErr != nil {
+		logger.Infof("❌ Failed to load user traders: %v", loadErr)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load trader: " + loadErr.Error()})
+		return
+	}
+
+	trader, err := s.traderManager.GetTrader(traderID)
+	if err != nil {
+		// Check detailed reason
+		fullCfg, _ := s.store.Trader().GetFullConfig(userID, traderID)
+		if fullCfg != nil && fullCfg.Trader != nil {
+			// Check strategy
+			if fullCfg.Strategy == nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Trader has no strategy configured, please create a strategy in Strategy Studio and associate it with the trader"})
+				return
+			}
+			// Check AI model
+			if fullCfg.AIModel == nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Trader's AI model does not exist, please check AI model configuration"})
+				return
+			}
+			if !fullCfg.AIModel.Enabled {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Trader's AI model is not enabled, please enable the AI model first"})
+				return
+			}
+			// Check exchange
+			if fullCfg.Exchange == nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Trader's exchange does not exist, please check exchange configuration"})
+				return
+			}
+			if !fullCfg.Exchange.Enabled {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Trader's exchange is not enabled, please enable the exchange first"})
+				return
+			}
+		}
+		c.JSON(http.StatusNotFound, gin.H{"error": "Failed to load trader, please check AI model, exchange and strategy configuration"})
 		return
 	}
 
@@ -1078,6 +1092,33 @@ func (s *Server) handleSyncBalance(c *gin.Context) {
 			exchangeCfg.APIKey,
 			exchangeCfg.SecretKey,
 		)
+	case "okx":
+		tempTrader = trader.NewOKXTrader(
+			exchangeCfg.APIKey,
+			exchangeCfg.SecretKey,
+			exchangeCfg.Passphrase,
+		)
+	case "bitget":
+		tempTrader = trader.NewBitgetTrader(
+			exchangeCfg.APIKey,
+			exchangeCfg.SecretKey,
+			exchangeCfg.Passphrase,
+		)
+	case "lighter":
+		if exchangeCfg.LighterAPIKeyPrivateKey != "" {
+			tempTrader, createErr = trader.NewLighterTraderV2(
+				exchangeCfg.LighterPrivateKey,
+				exchangeCfg.LighterWalletAddr,
+				exchangeCfg.LighterAPIKeyPrivateKey,
+				exchangeCfg.Testnet,
+			)
+		} else {
+			tempTrader, createErr = trader.NewLighterTrader(
+				exchangeCfg.LighterPrivateKey,
+				exchangeCfg.LighterWalletAddr,
+				exchangeCfg.Testnet,
+			)
+		}
 	default:
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported exchange type"})
 		return
@@ -1207,6 +1248,12 @@ func (s *Server) handleClosePosition(c *gin.Context) {
 		)
 	case "okx":
 		tempTrader = trader.NewOKXTrader(
+			exchangeCfg.APIKey,
+			exchangeCfg.SecretKey,
+			exchangeCfg.Passphrase,
+		)
+	case "bitget":
+		tempTrader = trader.NewBitgetTrader(
 			exchangeCfg.APIKey,
 			exchangeCfg.SecretKey,
 			exchangeCfg.Passphrase,
@@ -1582,7 +1629,7 @@ func (s *Server) handleCreateExchange(c *gin.Context) {
 
 	// Validate exchange type
 	validTypes := map[string]bool{
-		"binance": true, "bybit": true, "okx": true,
+		"binance": true, "bybit": true, "okx": true, "bitget": true,
 		"hyperliquid": true, "aster": true, "lighter": true,
 	}
 	if !validTypes[req.ExchangeType] {
@@ -1730,6 +1777,7 @@ func (s *Server) handleGetTraderConfig(c *gin.Context) {
 		"trader_name":           traderConfig.Name,
 		"ai_model":              aiModelID,
 		"exchange_id":           traderConfig.ExchangeID,
+		"strategy_id":           traderConfig.StrategyID,
 		"initial_balance":       traderConfig.InitialBalance,
 		"scan_interval_minutes": traderConfig.ScanIntervalMinutes,
 		"btc_eth_leverage":      traderConfig.BTCETHLeverage,
