@@ -6,6 +6,8 @@
 [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 [![Backed by Amber.ac](https://img.shields.io/badge/Backed%20by-Amber.ac-orange.svg)](https://amber.ac)
 
+> **语言声明：** 本中文版本文档仅为方便海外华人社区阅读而提供，不代表本软件面向中国大陆、香港、澳门或台湾地区用户开放。如您位于上述地区，请勿使用本软件。
+
 | 贡献者空投计划 |
 |:----------------------------------:|
 | 代码 · Bug修复 · Issue → 空投奖励 |
@@ -75,7 +77,7 @@
 |----------|--------|-------------------------|
 | **Hyperliquid** | ✅ 已支持 | [注册](https://app.hyperliquid.xyz/join/AITRADING) |
 | **Aster DEX** | ✅ 已支持 | [注册](https://www.asterdex.com/en/referral/fdfc0e) |
-| **Lighter** | ✅ 已支持 | [注册](https://lighter.xyz) |
+| **Lighter** | ✅ 已支持 | [注册](https://app.lighter.xyz/?referral=68151432) |
 
 ---
 
@@ -102,7 +104,7 @@
 curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bash
 ```
 
-完成！打开浏览器访问 **http://localhost:3000**
+完成！打开浏览器访问 **http://127.0.0.1:3000**
 
 ### Docker Compose (手动)
 
@@ -112,7 +114,7 @@ curl -O https://raw.githubusercontent.com/NoFxAiOS/nofx/main/docker-compose.prod
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-访问 Web 界面: **http://localhost:3000**
+访问 Web 界面: **http://127.0.0.1:3000**
 
 ```bash
 # 管理命令
@@ -163,7 +165,88 @@ cd web
 npm run dev
 ```
 
-访问 Web 界面: **http://localhost:3000**
+访问 Web 界面: **http://127.0.0.1:3000**
+
+---
+
+## Windows 安装
+
+### 方法一：Docker Desktop（推荐）
+
+1. **安装 Docker Desktop**
+   - 从 [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/) 下载
+   - 运行安装程序并重启电脑
+   - 启动 Docker Desktop 并等待就绪
+
+2. **运行 NOFX**
+   ```powershell
+   # 打开 PowerShell 运行：
+   curl -o docker-compose.prod.yml https://raw.githubusercontent.com/NoFxAiOS/nofx/main/docker-compose.prod.yml
+   docker compose -f docker-compose.prod.yml up -d
+   ```
+
+3. **访问**：在浏览器打开 **http://127.0.0.1:3000**
+
+### 方法二：WSL2（适合开发）
+
+1. **安装 WSL2**
+   ```powershell
+   # 以管理员身份打开 PowerShell
+   wsl --install
+   ```
+   安装完成后重启电脑。
+
+2. **从 Microsoft Store 安装 Ubuntu**
+   - 打开 Microsoft Store
+   - 搜索 "Ubuntu 22.04" 并安装
+   - 启动 Ubuntu 并设置用户名/密码
+
+3. **在 WSL2 中安装依赖**
+   ```bash
+   # 更新系统
+   sudo apt update && sudo apt upgrade -y
+
+   # 安装 Go
+   wget https://go.dev/dl/go1.21.5.linux-amd64.tar.gz
+   sudo tar -C /usr/local -xzf go1.21.5.linux-amd64.tar.gz
+   echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
+   source ~/.bashrc
+
+   # 安装 Node.js
+   curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+   sudo apt-get install -y nodejs
+
+   # 安装 TA-Lib
+   sudo apt-get install -y libta-lib0-dev
+
+   # 安装 Git
+   sudo apt-get install -y git
+   ```
+
+4. **克隆并运行 NOFX**
+   ```bash
+   git clone https://github.com/NoFxAiOS/nofx.git
+   cd nofx
+
+   # 构建并运行后端
+   go build -o nofx && ./nofx
+
+   # 在另一个终端运行前端
+   cd web && npm install && npm run dev
+   ```
+
+5. **访问**：在 Windows 浏览器打开 **http://127.0.0.1:3000**
+
+### 方法三：WSL2 + Docker（两全其美）
+
+1. **安装 Docker Desktop 并启用 WSL2 后端**
+   - Docker Desktop 安装时勾选 "Use WSL 2 based engine"
+   - 在 Docker Desktop 设置 → Resources → WSL Integration 中启用你的 Linux 发行版
+
+2. **在 WSL2 终端运行**
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bash
+   ```
 
 ---
 
