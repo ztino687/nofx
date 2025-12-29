@@ -83,6 +83,8 @@ export function AdvancedChart({
   const [showIndicatorPanel, setShowIndicatorPanel] = useState(false)
   const [showOrderMarkers, setShowOrderMarkers] = useState(true) // 订单标记显示开关，默认显示
   const isInitialLoadRef = useRef(true) // 跟踪是否为初始加载
+  const [tooltipData, setTooltipData] = useState<any>(null)
+  const tooltipRef = useRef<HTMLDivElement>(null)
 
   // 指标配置
   const [indicators, setIndicators] = useState<IndicatorConfig[]>([
@@ -317,6 +319,18 @@ export function AdvancedChart({
         mouseWheel: true,
         pinch: true,
       },
+      localization: {
+        timeFormatter: (time: number) => {
+          const date = new Date(time * 1000)
+          return date.toLocaleString('zh-CN', {
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+          })
+        },
+      },
     })
 
     chartRef.current = chart
@@ -354,6 +368,31 @@ export function AdvancedChart({
     }
 
     window.addEventListener('resize', handleResize)
+
+    // 监听鼠标移动，显示 OHLC 信息
+    chart.subscribeCrosshairMove((param) => {
+      if (!param.time || !param.point || !candlestickSeriesRef.current) {
+        setTooltipData(null)
+        return
+      }
+
+      const data = param.seriesData.get(candlestickSeriesRef.current as any)
+      if (!data) {
+        setTooltipData(null)
+        return
+      }
+
+      const candleData = data as any
+      setTooltipData({
+        time: param.time,
+        open: candleData.open,
+        high: candleData.high,
+        low: candleData.low,
+        close: candleData.close,
+        x: param.point.x,
+        y: param.point.y,
+      })
+    })
 
     return () => {
       window.removeEventListener('resize', handleResize)
@@ -407,36 +446,69 @@ export function AdvancedChart({
           if (orders.length > 0) {
             console.log('[AdvancedChart] Creating markers from', orders.length, 'orders')
 
-            // 过滤掉无效时间戳的订单（小于2024年的时间戳）
-            const minValidTimestamp = new Date('2024-01-01').getTime() / 1000
-            const validOrders = orders.filter(order => {
-              if (order.time < minValidTimestamp) {
-                console.warn('[AdvancedChart] ⚠️ Skipping order with invalid timestamp:', order.time, '(', new Date(order.time * 1000).toISOString(), ')')
-                return false
+            // 提取 K 线时间数组（已排序）
+            const klineTimes = klineData.map((k: any) => k.time as number)
+            const klineMinTime = klineTimes[0] || 0
+            const klineMaxTime = klineTimes[klineTimes.length - 1] || 0
+            console.log('[AdvancedChart] Kline time range:', klineMinTime, '-', klineMaxTime, '(', klineTimes.length, 'candles)')
+
+            // 二分查找：找到订单时间所属的 K 线蜡烛
+            // 返回 time <= orderTime 的最大 K 线时间
+            const findCandleTime = (orderTime: number): number | null => {
+              if (orderTime < klineMinTime || orderTime > klineMaxTime) {
+                return null // 超出范围
               }
-              return true
-            })
 
-            console.log('[AdvancedChart] Valid orders:', validOrders.length, 'out of', orders.length)
+              let left = 0
+              let right = klineTimes.length - 1
 
-            const markers = validOrders.map(order => {
-              // 直接使用 rawSide 字段判断买卖（更准确）
-              // rawSide = 'buy' → 绿色 B
-              // rawSide = 'sell' → 红色 S
+              while (left < right) {
+                const mid = Math.ceil((left + right + 1) / 2)
+                if (klineTimes[mid] <= orderTime) {
+                  left = mid
+                } else {
+                  right = mid - 1
+                }
+              }
+
+              return klineTimes[left]
+            }
+
+            // 过滤并对齐订单到 K 线时间
+            const markers: Array<{
+              time: Time
+              position: 'belowBar'
+              color: string
+              shape: 'circle'
+              text: string
+              size: number
+            }> = []
+
+            orders.forEach(order => {
+              // 使用二分查找找到对应的 K 线蜡烛时间
+              const candleTime = findCandleTime(order.time)
+
+              if (candleTime === null) {
+                console.warn('[AdvancedChart] ⚠️ Skipping order outside kline range:',
+                  order.time, '(', new Date(order.time * 1000).toISOString(), ')')
+                return
+              }
+
               const isBuy = order.rawSide === 'buy'
-
-              const marker = {
-                time: order.time as Time,
+              markers.push({
+                time: candleTime as Time,
                 position: 'belowBar' as const,
-                color: isBuy ? '#0ECB81' : '#F6465D', // BUY绿色, SELL红色
-                shape: 'circle' as const, // 使用圆形作为背景
-                text: isBuy ? 'B' : 'S', // 显示 B 或 S
-                size: 1, // 稍微大一点以显示文字
-              }
-
-              console.log('[AdvancedChart] ✅ Created marker:', marker.text, 'for', order.rawSide, 'at', new Date(order.time * 1000).toISOString())
-              return marker
+                color: isBuy ? '#0ECB81' : '#F6465D',
+                shape: 'circle' as const,
+                text: isBuy ? 'B' : 'S',
+                size: 1,
+              })
             })
+
+            // 按时间排序（lightweight-charts 要求标记按时间顺序）
+            markers.sort((a, b) => (a.time as number) - (b.time as number))
+
+            console.log('[AdvancedChart] Valid markers:', markers.length, 'out of', orders.length)
 
             console.log('[AdvancedChart] Setting', markers.length, 'markers on candlestick series')
             console.log('[AdvancedChart] Markers data:', JSON.stringify(markers, null, 2))
@@ -606,6 +678,42 @@ export function AdvancedChart({
             <span className="text-xs px-2 py-0.5 rounded" style={{ background: '#2B3139', color: '#848E9C' }}>
               {interval}
             </span>
+            {/* 交易所标识 */}
+            <span
+              className="text-xs px-2 py-0.5 rounded font-medium uppercase"
+              style={{
+                background: exchange === 'binance' ? 'rgba(243, 186, 47, 0.15)' :
+                           exchange === 'bybit' ? 'rgba(247, 147, 26, 0.15)' :
+                           exchange === 'okx' ? 'rgba(0, 180, 255, 0.15)' :
+                           exchange === 'bitget' ? 'rgba(0, 212, 170, 0.15)' :
+                           exchange === 'hyperliquid' ? 'rgba(80, 227, 194, 0.15)' :
+                           exchange === 'aster' ? 'rgba(138, 43, 226, 0.15)' :
+                           'rgba(255, 255, 255, 0.1)',
+                color: exchange === 'binance' ? '#F3BA2F' :
+                       exchange === 'bybit' ? '#F7931A' :
+                       exchange === 'okx' ? '#00B4FF' :
+                       exchange === 'bitget' ? '#00D4AA' :
+                       exchange === 'hyperliquid' ? '#50E3C2' :
+                       exchange === 'aster' ? '#8A2BE2' :
+                       '#848E9C',
+                border: `1px solid ${
+                  exchange === 'binance' ? 'rgba(243, 186, 47, 0.3)' :
+                  exchange === 'bybit' ? 'rgba(247, 147, 26, 0.3)' :
+                  exchange === 'okx' ? 'rgba(0, 180, 255, 0.3)' :
+                  exchange === 'bitget' ? 'rgba(0, 212, 170, 0.3)' :
+                  exchange === 'hyperliquid' ? 'rgba(80, 227, 194, 0.3)' :
+                  exchange === 'aster' ? 'rgba(138, 43, 226, 0.3)' :
+                  'rgba(255, 255, 255, 0.2)'
+                }`
+              }}
+              title={['bitget', 'lighter'].includes(exchange?.toLowerCase() || '')
+                ? 'Data source: Binance (fallback)' : undefined}
+            >
+              {exchange}
+              {['bitget', 'lighter'].includes(exchange?.toLowerCase() || '') && (
+                <span className="ml-1 text-[9px] opacity-60">*</span>
+              )}
+            </span>
           </div>
 
           <div className="flex items-center gap-2">
@@ -740,6 +848,56 @@ export function AdvancedChart({
       {/* 图表容器 */}
       <div style={{ position: 'relative' }}>
         <div ref={chartContainerRef} />
+
+        {/* OHLC Tooltip */}
+        {tooltipData && (
+          <div
+            ref={tooltipRef}
+            style={{
+              position: 'absolute',
+              left: '10px',
+              top: '10px',
+              padding: '8px 12px',
+              background: 'rgba(15, 18, 21, 0.95)',
+              border: '1px solid rgba(240, 185, 11, 0.3)',
+              borderRadius: '6px',
+              color: '#EAECEF',
+              fontSize: '12px',
+              fontFamily: 'monospace',
+              pointerEvents: 'none',
+              zIndex: 10,
+              backdropFilter: 'blur(10px)',
+              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.5)',
+            }}
+          >
+            <div style={{ marginBottom: '6px', color: '#F0B90B', fontWeight: 'bold', fontSize: '11px' }}>
+              {new Date((tooltipData.time as number) * 1000).toLocaleString(language === 'zh' ? 'zh-CN' : 'en-US', {
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 12px', fontSize: '11px' }}>
+              <span style={{ color: '#848E9C' }}>O:</span>
+              <span style={{ color: '#EAECEF', fontWeight: '500' }}>{tooltipData.open?.toFixed(2)}</span>
+
+              <span style={{ color: '#848E9C' }}>H:</span>
+              <span style={{ color: '#0ECB81', fontWeight: '500' }}>{tooltipData.high?.toFixed(2)}</span>
+
+              <span style={{ color: '#848E9C' }}>L:</span>
+              <span style={{ color: '#F6465D', fontWeight: '500' }}>{tooltipData.low?.toFixed(2)}</span>
+
+              <span style={{ color: '#848E9C' }}>C:</span>
+              <span style={{
+                color: tooltipData.close >= tooltipData.open ? '#0ECB81' : '#F6465D',
+                fontWeight: 'bold'
+              }}>
+                {tooltipData.close?.toFixed(2)}
+              </span>
+            </div>
+          </div>
+        )}
 
         {/* NOFX 水印 */}
         <div
