@@ -4,12 +4,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"nofx/kernel"
 	"nofx/experience"
+	"nofx/kernel"
 	"nofx/logger"
 	"nofx/market"
 	"nofx/mcp"
 	"nofx/store"
+	"nofx/trader/aster"
+	"nofx/trader/binance"
+	"nofx/trader/bitget"
+	"nofx/trader/bybit"
+	"nofx/trader/gate"
+	"nofx/trader/hyperliquid"
+	"nofx/trader/lighter"
+	"nofx/trader/okx"
 	"strings"
 	"sync"
 	"time"
@@ -23,7 +31,7 @@ type AutoTraderConfig struct {
 	AIModel string // AI model: "qwen" or "deepseek"
 
 	// Trading platform selection
-	Exchange   string // Exchange type: "binance", "bybit", "okx", "bitget", "hyperliquid", "aster" or "lighter"
+	Exchange   string // Exchange type: "binance", "bybit", "okx", "bitget", "gate", "hyperliquid", "aster" or "lighter"
 	ExchangeID string // Exchange account UUID (for multi-account support)
 
 	// 测试网
@@ -46,6 +54,10 @@ type AutoTraderConfig struct {
 	BitgetAPIKey    string
 	BitgetSecretKey string
 	BitgetPassphrase string
+
+	// Gate API configuration
+	GateAPIKey    string
+	GateSecretKey string
 
 	// Hyperliquid configuration
 	HyperliquidPrivateKey string
@@ -227,25 +239,28 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 	switch config.Exchange {
 	case "binance":
 		logger.Infof("🏦 [%s] Using Binance Futures trading", config.Name)
-		trader = NewFuturesTrader(config.BinanceAPIKey, config.BinanceSecretKey, config.Testnet, userID)
+		trader = binance.NewFuturesTrader(config.BinanceAPIKey, config.BinanceSecretKey, config.Testnet, userID)
 	case "bybit":
 		logger.Infof("🏦 [%s] Using Bybit Futures trading", config.Name)
-		trader = NewBybitTrader(config.BybitAPIKey, config.BybitSecretKey)
+		trader = bybit.NewBybitTrader(config.BybitAPIKey, config.BybitSecretKey)
 	case "okx":
 		logger.Infof("🏦 [%s] Using OKX Futures trading", config.Name)
-		trader = NewOKXTrader(config.OKXAPIKey, config.OKXSecretKey, config.OKXPassphrase)
+		trader = okx.NewOKXTrader(config.OKXAPIKey, config.OKXSecretKey, config.OKXPassphrase)
 	case "bitget":
 		logger.Infof("🏦 [%s] Using Bitget Futures trading", config.Name)
-		trader = NewBitgetTrader(config.BitgetAPIKey, config.BitgetSecretKey, config.BitgetPassphrase)
+		trader = bitget.NewBitgetTrader(config.BitgetAPIKey, config.BitgetSecretKey, config.BitgetPassphrase)
+	case "gate":
+		logger.Infof("🏦 [%s] Using Gate.io Futures trading", config.Name)
+		trader = gate.NewGateTrader(config.GateAPIKey, config.GateSecretKey)
 	case "hyperliquid":
 		logger.Infof("🏦 [%s] Using Hyperliquid trading", config.Name)
-		trader, err = NewHyperliquidTrader(config.HyperliquidPrivateKey, config.HyperliquidWalletAddr, config.HyperliquidTestnet)
+		trader, err = hyperliquid.NewHyperliquidTrader(config.HyperliquidPrivateKey, config.HyperliquidWalletAddr, config.HyperliquidTestnet)
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize Hyperliquid trader: %w", err)
 		}
 	case "aster":
 		logger.Infof("🏦 [%s] Using Aster trading", config.Name)
-		trader, err = NewAsterTrader(config.AsterUser, config.AsterSigner, config.AsterPrivateKey)
+		trader, err = aster.NewAsterTrader(config.AsterUser, config.AsterSigner, config.AsterPrivateKey)
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize Aster trader: %w", err)
 		}
@@ -257,7 +272,7 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 		}
 
 		// Lighter only supports mainnet (testnet disabled)
-		trader, err = NewLighterTraderV2(
+		trader, err = lighter.NewLighterTraderV2(
 			config.LighterWalletAddr,
 			config.LighterAPIKeyPrivateKey,
 			config.LighterAPIKeyIndex,
@@ -366,7 +381,7 @@ func (at *AutoTrader) Run() error {
 
 	// Start Lighter order sync if using Lighter exchange
 	if at.exchange == "lighter" {
-		if lighterTrader, ok := at.trader.(*LighterTraderV2); ok && at.store != nil {
+		if lighterTrader, ok := at.trader.(*lighter.LighterTraderV2); ok && at.store != nil {
 			lighterTrader.StartOrderSync(at.id, at.exchangeID, at.exchange, at.store, 30*time.Second)
 			logger.Infof("🔄 [%s] Lighter order+position sync enabled (every 30s)", at.name)
 		}
@@ -374,7 +389,7 @@ func (at *AutoTrader) Run() error {
 
 	// Start Hyperliquid order sync if using Hyperliquid exchange
 	if at.exchange == "hyperliquid" {
-		if hyperliquidTrader, ok := at.trader.(*HyperliquidTrader); ok && at.store != nil {
+		if hyperliquidTrader, ok := at.trader.(*hyperliquid.HyperliquidTrader); ok && at.store != nil {
 			hyperliquidTrader.StartOrderSync(at.id, at.exchangeID, at.exchange, at.store, 30*time.Second)
 			logger.Infof("🔄 [%s] Hyperliquid order+position sync enabled (every 30s)", at.name)
 		}
@@ -382,7 +397,7 @@ func (at *AutoTrader) Run() error {
 
 	// Start Bybit order sync if using Bybit exchange
 	if at.exchange == "bybit" {
-		if bybitTrader, ok := at.trader.(*BybitTrader); ok && at.store != nil {
+		if bybitTrader, ok := at.trader.(*bybit.BybitTrader); ok && at.store != nil {
 			bybitTrader.StartOrderSync(at.id, at.exchangeID, at.exchange, at.store, 30*time.Second)
 			logger.Infof("🔄 [%s] Bybit order+position sync enabled (every 30s)", at.name)
 		}
@@ -390,7 +405,7 @@ func (at *AutoTrader) Run() error {
 
 	// Start OKX order sync if using OKX exchange
 	if at.exchange == "okx" {
-		if okxTrader, ok := at.trader.(*OKXTrader); ok && at.store != nil {
+		if okxTrader, ok := at.trader.(*okx.OKXTrader); ok && at.store != nil {
 			okxTrader.StartOrderSync(at.id, at.exchangeID, at.exchange, at.store, 30*time.Second)
 			logger.Infof("🔄 [%s] OKX order+position sync enabled (every 30s)", at.name)
 		}
@@ -398,7 +413,7 @@ func (at *AutoTrader) Run() error {
 
 	// Start Bitget order sync if using Bitget exchange
 	if at.exchange == "bitget" {
-		if bitgetTrader, ok := at.trader.(*BitgetTrader); ok && at.store != nil {
+		if bitgetTrader, ok := at.trader.(*bitget.BitgetTrader); ok && at.store != nil {
 			bitgetTrader.StartOrderSync(at.id, at.exchangeID, at.exchange, at.store, 30*time.Second)
 			logger.Infof("🔄 [%s] Bitget order+position sync enabled (every 30s)", at.name)
 		}
@@ -406,7 +421,7 @@ func (at *AutoTrader) Run() error {
 
 	// Start Aster order sync if using Aster exchange
 	if at.exchange == "aster" {
-		if asterTrader, ok := at.trader.(*AsterTrader); ok && at.store != nil {
+		if asterTrader, ok := at.trader.(*aster.AsterTrader); ok && at.store != nil {
 			asterTrader.StartOrderSync(at.id, at.exchangeID, at.exchange, at.store, 30*time.Second)
 			logger.Infof("🔄 [%s] Aster order+position sync enabled (every 30s)", at.name)
 		}
@@ -414,9 +429,17 @@ func (at *AutoTrader) Run() error {
 
 	// Start Binance order sync if using Binance exchange
 	if at.exchange == "binance" {
-		if binanceTrader, ok := at.trader.(*FuturesTrader); ok && at.store != nil {
+		if binanceTrader, ok := at.trader.(*binance.FuturesTrader); ok && at.store != nil {
 			binanceTrader.StartOrderSync(at.id, at.exchangeID, at.exchange, at.store, 30*time.Second)
 			logger.Infof("🔄 [%s] Binance order+position sync enabled (every 30s)", at.name)
+		}
+	}
+
+	// Start Gate order sync if using Gate exchange
+	if at.exchange == "gate" {
+		if gateTrader, ok := at.trader.(*gate.GateTrader); ok && at.store != nil {
+			gateTrader.StartOrderSync(at.id, at.exchangeID, at.exchange, at.store, 30*time.Second)
+			logger.Infof("🔄 [%s] Gate order+position sync enabled (every 30s)", at.name)
 		}
 	}
 
@@ -1053,7 +1076,7 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *kernel.Decision, actio
 	}
 
 	// Get current price
-	marketData, err := market.Get(decision.Symbol)
+	marketData, err := market.GetWithExchange(decision.Symbol, at.exchange)
 	if err != nil {
 		return err
 	}
@@ -1170,7 +1193,7 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *kernel.Decision, acti
 	}
 
 	// Get current price
-	marketData, err := market.Get(decision.Symbol)
+	marketData, err := market.GetWithExchange(decision.Symbol, at.exchange)
 	if err != nil {
 		return err
 	}
@@ -1269,7 +1292,7 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *kernel.Decision, acti
 	logger.Infof("  🔄 Close long: %s", decision.Symbol)
 
 	// Get current price
-	marketData, err := market.Get(decision.Symbol)
+	marketData, err := market.GetWithExchange(decision.Symbol, at.exchange)
 	if err != nil {
 		return err
 	}
@@ -1333,7 +1356,7 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *kernel.Decision, act
 	logger.Infof("  🔄 Close short: %s", decision.Symbol)
 
 	// Get current price
-	marketData, err := market.Get(decision.Symbol)
+	marketData, err := market.GetWithExchange(decision.Symbol, at.exchange)
 	if err != nil {
 		return err
 	}
