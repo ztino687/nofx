@@ -6,11 +6,14 @@ import (
 	"nofx/backtest"
 	"nofx/config"
 	"nofx/crypto"
-	"nofx/experience"
+	"nofx/telemetry"
 	"nofx/logger"
 	"nofx/manager"
 	"nofx/mcp"
+	_ "nofx/mcp/payment"
+	_ "nofx/mcp/provider"
 	"nofx/store"
+	"nofx/telegram"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -130,11 +133,20 @@ func main() {
 
 	// Start API server
 	server := api.NewServer(traderManager, st, cryptoService, backtestManager, cfg.APIServerPort)
+
+	// Create hot-reload channel for Telegram bot; wire it to the API server
+	// so that POST /api/telegram can trigger a bot restart when the token changes.
+	telegramReloadCh := make(chan struct{}, 1)
+	server.SetTelegramReloadCh(telegramReloadCh)
+
 	go func() {
 		if err := server.Start(); err != nil {
 			logger.Fatalf("❌ Failed to start API server: %v", err)
 		}
 	}()
+
+	// Start Telegram bot (if TELEGRAM_BOT_TOKEN is configured)
+	go telegram.Start(cfg, st, telegramReloadCh)
 
 	// Wait for interrupt signal
 	quit := make(chan os.Signal, 1)
@@ -158,7 +170,7 @@ func newSharedMCPClient() mcp.AIClient {
 		logger.Warn("⚠️ DEEPSEEK_API_KEY not set, AI features will be unavailable")
 		return nil
 	}
-	return mcp.NewDeepSeekClient()
+	return mcp.NewAIClientByProvider("deepseek")
 }
 
 // initInstallationID initializes the anonymous installation ID for experience improvement
@@ -182,5 +194,5 @@ func initInstallationID(st *store.Store) {
 	}
 
 	// Set installation ID in experience module
-	experience.SetInstallationID(installationID)
+	telemetry.SetInstallationID(installationID)
 }
