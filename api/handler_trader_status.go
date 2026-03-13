@@ -66,7 +66,7 @@ func (s *Server) handleSyncBalance(c *gin.Context) {
 	// Convert EncryptedString fields to string
 	switch exchangeCfg.ExchangeType {
 	case "binance":
-		tempTrader = binance.NewFuturesTrader(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), userID)
+		tempTrader = binance.NewFuturesTrader(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), exchangeCfg.Testnet, userID)
 	case "hyperliquid":
 		tempTrader, createErr = hyperliquidtrader.NewHyperliquidTrader(
 			string(exchangeCfg.APIKey),
@@ -230,7 +230,7 @@ func (s *Server) handleClosePosition(c *gin.Context) {
 	// Convert EncryptedString fields to string
 	switch exchangeCfg.ExchangeType {
 	case "binance":
-		tempTrader = binance.NewFuturesTrader(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), userID)
+		tempTrader = binance.NewFuturesTrader(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), exchangeCfg.Testnet, userID)
 	case "hyperliquid":
 		tempTrader, createErr = hyperliquidtrader.NewHyperliquidTrader(
 			string(exchangeCfg.APIKey),
