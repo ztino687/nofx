@@ -44,11 +44,22 @@ var (
 
 // TokenUsage represents token usage from AI API response
 type TokenUsage struct {
-	Provider         string
+	Provider         string // payment channel: "claw402" or native provider name
 	Model            string
 	PromptTokens     int
 	CompletionTokens int
 	TotalTokens      int
+}
+
+// Channel returns the payment channel category for telemetry.
+// Returns "claw402" or "native" based on the provider.
+func (u TokenUsage) Channel() string {
+	switch u.Provider {
+	case ProviderClaw402:
+		return "claw402"
+	default:
+		return "native"
+	}
 }
 
 // Client AI API configuration
@@ -213,6 +224,16 @@ func (client *Client) BuildMCPRequestBody(systemPrompt, userPrompt string) map[s
 		"role":    "user",
 		"content": userPrompt,
 	})
+
+	// Guard: truncate messages if they would exceed the model's context window
+	if client.Cfg.MaxContext > 0 {
+		truncated, removed := truncateMessages(messages, client.Cfg.MaxContext, client.MaxTokens)
+		if removed > 0 {
+			client.Log.Warnf("⚠️  [%s] Context guard: truncated %d oldest messages to fit within %d token limit",
+				client.String(), removed, client.Cfg.MaxContext)
+			messages = truncated
+		}
+	}
 
 	// Build request body
 	requestBody := map[string]interface{}{
@@ -562,6 +583,20 @@ func (client *Client) BuildRequestBodyFromRequest(req *Request) map[string]any {
 		messages = append(messages, m)
 	}
 
+	// Guard: truncate messages if they would exceed the model's context window
+	maxOut := client.MaxTokens
+	if req.MaxTokens != nil {
+		maxOut = *req.MaxTokens
+	}
+	if client.Cfg.MaxContext > 0 {
+		truncated, removed := truncateMessagesAny(messages, client.Cfg.MaxContext, maxOut)
+		if removed > 0 {
+			client.Log.Warnf("⚠️  [%s] Context guard: truncated %d oldest messages to fit within %d token limit",
+				client.String(), removed, client.Cfg.MaxContext)
+			messages = truncated
+		}
+	}
+
 	// Build basic request body
 	requestBody := map[string]interface{}{
 		"model":    req.Model,
@@ -687,14 +722,26 @@ func (client *Client) CallWithRequestStream(req *Request, onChunk func(string)) 
 		return "", fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
 	}
 
-	var accumulated strings.Builder
-	scanner := bufio.NewScanner(resp.Body)
-
-	for scanner.Scan() {
-		// Ping the watchdog: we received a line, reset the idle timer.
+	return ParseSSEStream(resp.Body, onChunk, func() {
 		select {
 		case resetCh <- struct{}{}:
 		default:
+		}
+	})
+}
+
+// ParseSSEStream reads an SSE response body, accumulates text deltas,
+// and calls onChunk with the full accumulated text after each chunk.
+// If onLine is non-nil, it is called after each raw SSE line is scanned
+// (useful for resetting idle-timeout watchdogs).
+// Returns the complete accumulated text.
+func ParseSSEStream(body io.Reader, onChunk func(string), onLine func()) (string, error) {
+	var accumulated strings.Builder
+	scanner := bufio.NewScanner(body)
+
+	for scanner.Scan() {
+		if onLine != nil {
+			onLine()
 		}
 
 		line := scanner.Text()
@@ -706,7 +753,6 @@ func (client *Client) CallWithRequestStream(req *Request, onChunk func(string)) 
 			break
 		}
 
-		// Parse the SSE JSON chunk
 		var chunk struct {
 			Choices []struct {
 				Delta struct {
@@ -714,10 +760,21 @@ func (client *Client) CallWithRequestStream(req *Request, onChunk func(string)) 
 				} `json:"delta"`
 				FinishReason *string `json:"finish_reason"`
 			} `json:"choices"`
+			Usage *struct {
+				PromptTokens     int `json:"prompt_tokens"`
+				CompletionTokens int `json:"completion_tokens"`
+				TotalTokens      int `json:"total_tokens"`
+			} `json:"usage,omitempty"`
 		}
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			continue // skip malformed chunks
 		}
+
+		if chunk.Usage != nil && chunk.Usage.TotalTokens > 0 {
+			fmt.Printf("📊 [TokenUsage] prompt=%d, completion=%d, total=%d\n",
+				chunk.Usage.PromptTokens, chunk.Usage.CompletionTokens, chunk.Usage.TotalTokens)
+		}
+
 		if len(chunk.Choices) == 0 {
 			continue
 		}

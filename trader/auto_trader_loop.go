@@ -6,6 +6,7 @@ import (
 	"nofx/kernel"
 	"nofx/logger"
 	"nofx/store"
+	"nofx/wallet"
 	"strings"
 	"time"
 )
@@ -25,6 +26,11 @@ func (at *AutoTrader) runCycle() error {
 	if !running {
 		logger.Infof("⏹ Trader is stopped, aborting cycle #%d", at.callCount)
 		return nil
+	}
+
+	// Check USDC balance periodically for claw402 users (every 10 cycles)
+	if at.callCount%10 == 0 && store.IsClaw402Config(at.config.AIModel) {
+		at.checkClaw402Balance()
 	}
 
 	// Create decision record
@@ -110,9 +116,27 @@ func (at *AutoTrader) runCycle() error {
 		}
 	}
 
+	// Record AI charge (track cost regardless of decision outcome)
+	if aiDecision != nil && at.store != nil {
+		if chargeErr := at.store.AICharge().Record(at.id, at.aiModel, at.config.AIModel); chargeErr != nil {
+			logger.Warnf("⚠️ Failed to record AI charge: %v", chargeErr)
+		}
+	}
+
 	if err != nil {
+		at.consecutiveAIFailures++
 		record.Success = false
 		record.ErrorMessage = fmt.Sprintf("Failed to get AI decision: %v", err)
+
+		// Activate safe mode after 3 consecutive failures
+		if at.consecutiveAIFailures >= 3 && !at.safeMode {
+			at.safeMode = true
+			at.safeModeReason = fmt.Sprintf("AI failed %d consecutive times: %v", at.consecutiveAIFailures, err)
+			logger.Errorf("🛡️ [%s] SAFE MODE ACTIVATED — AI failed %d times in a row. No new positions will be opened. Existing positions are protected with current stop-loss settings.",
+				at.name, at.consecutiveAIFailures)
+			logger.Errorf("🛡️ [%s] Reason: %v", at.name, err)
+			logger.Errorf("🛡️ [%s] Action: Will keep trying AI each cycle. Safe mode auto-deactivates when AI recovers.", at.name)
+		}
 
 		// Print system prompt and AI chain of thought (output even with errors for debugging)
 		if aiDecision != nil {
@@ -132,7 +156,25 @@ func (at *AutoTrader) runCycle() error {
 		}
 
 		at.saveDecision(record)
+
+		// In safe mode, don't return error — keep the loop running to retry next cycle
+		if at.safeMode {
+			logger.Warnf("🛡️ [%s] Safe mode: skipping this cycle, will retry in %v", at.name, at.config.ScanInterval)
+			return nil
+		}
+
 		return fmt.Errorf("failed to get AI decision: %w", err)
+	}
+
+	// AI succeeded — reset failure counter and deactivate safe mode
+	if at.consecutiveAIFailures > 0 {
+		logger.Infof("✅ [%s] AI recovered after %d consecutive failures", at.name, at.consecutiveAIFailures)
+	}
+	at.consecutiveAIFailures = 0
+	if at.safeMode {
+		logger.Infof("🛡️ [%s] SAFE MODE DEACTIVATED — AI is working again. Resuming normal trading.", at.name)
+		at.safeMode = false
+		at.safeModeReason = ""
 	}
 
 	// // 5. Print system prompt
@@ -179,6 +221,22 @@ func (at *AutoTrader) runCycle() error {
 	if !running {
 		logger.Infof("⏹ Trader stopped before decision execution, aborting cycle #%d", at.callCount)
 		return nil
+	}
+
+	// Safe mode: filter out open positions, only allow close/hold
+	if at.safeMode {
+		filtered := make([]kernel.Decision, 0)
+		for _, d := range sortedDecisions {
+			if d.Action == "open_long" || d.Action == "open_short" {
+				logger.Warnf("🛡️ [%s] Safe mode: BLOCKED %s %s (no new positions allowed)", at.name, d.Action, d.Symbol)
+				continue
+			}
+			filtered = append(filtered, d)
+		}
+		sortedDecisions = filtered
+		if len(sortedDecisions) == 0 {
+			logger.Infof("🛡️ [%s] Safe mode: all decisions were open positions, nothing to execute", at.name)
+		}
 	}
 
 	// Execute decisions and record results
@@ -557,4 +615,37 @@ func sortDecisionsByPriority(decisions []kernel.Decision) []kernel.Decision {
 	}
 
 	return sorted
+}
+
+// checkClaw402Balance checks USDC balance and logs warnings if low
+func (at *AutoTrader) checkClaw402Balance() {
+	scanMinutes := int(at.config.ScanInterval.Minutes())
+	if scanMinutes <= 0 {
+		scanMinutes = 3
+	}
+	dailyCost, _ := store.EstimateRunway(1.0, at.config.CustomModelName, scanMinutes)
+	logger.Infof("💰 [%s] Estimated daily AI cost: ~$%.2f (model: %s, interval: %dm)",
+		at.name, dailyCost, at.config.CustomModelName, scanMinutes)
+
+	if at.claw402WalletAddr != "" {
+		balance, err := wallet.QueryUSDCBalance(at.claw402WalletAddr)
+		if err != nil {
+			logger.Warnf("⚠️ [%s] Failed to query USDC balance: %v", at.name, err)
+			return
+		}
+
+		if balance < 1.0 {
+			logger.Warnf("⚠️ [%s] Low USDC balance: $%.2f — AI may stop soon!", at.name, balance)
+		}
+		if balance <= 0 {
+			logger.Errorf("🚨 [%s] USDC balance is ZERO — AI calls will fail!", at.name)
+		}
+
+		runway := float64(0)
+		if dailyCost > 0 {
+			runway = balance / dailyCost
+		}
+		logger.Infof("💰 [%s] USDC Balance: $%.2f | Daily AI cost: ~$%.2f | Runway: ~%.1f days",
+			at.name, balance, dailyCost, runway)
+	}
 }

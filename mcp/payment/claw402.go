@@ -125,14 +125,14 @@ func (c *Claw402Client) resolveEndpoint() string {
 func (c *Claw402Client) SetAuthHeader(h http.Header) { X402SetAuthHeader(h) }
 
 func (c *Claw402Client) Call(systemPrompt, userPrompt string) (string, error) {
-	return X402Call(c.Client, c.signPayment, "Claw402", systemPrompt, userPrompt)
+	return X402CallStream(c.Client, c.signPayment, "Claw402", systemPrompt, userPrompt, nil)
 }
 
 func (c *Claw402Client) CallWithRequestFull(req *mcp.Request) (*mcp.LLMResponse, error) {
 	return X402CallFull(c.Client, c.signPayment, "Claw402", req)
 }
 
-// signPayment signs x402 v2 EIP-712 payment (same Base chain + USDC as BlockRunBase).
+// signPayment signs x402 v2 EIP-712 payment on Base chain + USDC.
 func (c *Claw402Client) signPayment(paymentHeaderB64 string) (string, error) {
 	return SignBasePaymentHeader(c.privateKey, paymentHeaderB64, "Claw402")
 }

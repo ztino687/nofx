@@ -13,9 +13,7 @@ const (
 	ProviderKimi     = "kimi"
 	ProviderMiniMax  = "minimax"
 
-	ProviderBlockRunBase = "blockrun-base"
-	ProviderBlockRunSol  = "blockrun-sol"
-	ProviderClaw402      = "claw402"
+	ProviderClaw402 = "claw402"
 
 	// Default DeepSeek configuration (used as fallback in NewClient)
 	DefaultDeepSeekBaseURL = "https://api.deepseek.com"
@@ -27,5 +25,5 @@ const (
 
 	// Default MiniMax configuration (used by WithMiniMaxConfig convenience option)
 	DefaultMiniMaxBaseURL = "https://api.minimax.io/v1"
-	DefaultMiniMaxModel   = "MiniMax-M2.5"
+	DefaultMiniMaxModel   = "MiniMax-M2.7"
 )
