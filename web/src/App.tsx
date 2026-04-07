@@ -15,6 +15,7 @@ import { FAQPage } from './pages/FAQPage'
 import { StrategyStudioPage } from './pages/StrategyStudioPage'
 import { StrategyMarketPage } from './pages/StrategyMarketPage'
 import { DataPage } from './pages/DataPage'
+import { BeginnerOnboardingPage } from './pages/BeginnerOnboardingPage'
 import { LoginRequiredOverlay } from './components/auth/LoginRequiredOverlay'
 import HeaderBar from './components/common/HeaderBar'
 import { LanguageProvider, useLanguage } from './contexts/LanguageContext'
@@ -22,6 +23,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { ConfirmDialogProvider } from './components/common/ConfirmDialog'
 import { t } from './i18n/translations'
 import { useSystemConfig } from './hooks/useSystemConfig'
+import { getUserMode, hasCompletedBeginnerOnboarding } from './lib/onboarding'
 
 import { OFFICIAL_LINKS } from './constants/branding'
 import type {
@@ -53,16 +55,12 @@ function App() {
   const { config: systemConfig, loading: configLoading } = useSystemConfig()
   const [route, setRoute] = useState(window.location.pathname)
 
-  // Debug log
-  useEffect(() => {
-    console.log('[App] Mounted. Route:', window.location.pathname);
-  }, []);
-
   // 从URL路径读取初始页面状态（支持刷新保持页面）
   const getInitialPage = (): Page => {
     const path = window.location.pathname
     const hash = window.location.hash.slice(1) // 去掉 #
 
+    if (path === '/welcome') return 'traders'
     if (path === '/traders' || hash === 'traders') return 'traders'
     if (path === '/strategy' || hash === 'strategy') return 'strategy'
     if (path === '/strategy-market' || hash === 'strategy-market') return 'strategy-market'
@@ -132,6 +130,20 @@ function App() {
   }
   const [lastUpdate, setLastUpdate] = useState<string>('--:--:--')
   const [decisionsLimit, setDecisionsLimit] = useState<number>(5)
+  const hasPersistedAuth =
+    !!localStorage.getItem('auth_token') && !!localStorage.getItem('auth_user')
+
+  // Poll-off states: stop polling after 3 consecutive failures
+  const [accountPollOff, setAccountPollOff] = useState(false)
+  const [positionsPollOff, setPositionsPollOff] = useState(false)
+  const [decisionsPollOff, setDecisionsPollOff] = useState(false)
+
+  // Reset poll-off states when trader changes
+  useEffect(() => {
+    setAccountPollOff(false)
+    setPositionsPollOff(false)
+    setDecisionsPollOff(false)
+  }, [selectedTraderId])
 
   // 监听URL变化，同步页面状态
   useEffect(() => {
@@ -141,7 +153,9 @@ function App() {
       const params = new URLSearchParams(window.location.search)
       const traderParam = params.get('trader')
 
-      if (path === '/traders' || hash === 'traders') {
+      if (path === '/welcome') {
+        setCurrentPage('traders')
+      } else if (path === '/traders' || hash === 'traders') {
         setCurrentPage('traders')
       } else if (path === '/strategy' || hash === 'strategy') {
         setCurrentPage('strategy')
@@ -156,9 +170,7 @@ function App() {
       ) {
         setCurrentPage('trader')
         // 如果 URL 中有 trader 参数（slug 格式），更新选中的 trader
-        if (traderParam) {
-          setSelectedTraderSlug(traderParam)
-        }
+        setSelectedTraderSlug(traderParam || undefined)
       } else if (
         path === '/competition' ||
         hash === 'competition' ||
@@ -186,7 +198,7 @@ function App() {
   // 获取trader列表（仅在用户登录时）
   const { data: traders, error: tradersError } = useSWR<TraderInfo[]>(
     user && token ? 'traders' : null,
-    api.getTraders,
+    () => api.getTraders(currentPage === 'trader'),
     {
       refreshInterval: 10000,
       shouldRetryOnError: false, // 避免在后端未运行时无限重试
@@ -205,19 +217,22 @@ function App() {
 
   // 当获取到traders后，根据 URL 中的 trader slug 设置选中的 trader，或默认选中第一个
   useEffect(() => {
-    if (traders && traders.length > 0 && !selectedTraderId) {
-      if (selectedTraderSlug) {
-        // 通过 slug 找到对应的 trader
-        const trader = findTraderBySlug(selectedTraderSlug, traders)
-        if (trader) {
-          setSelectedTraderId(trader.trader_id)
-        } else {
-          // 如果找不到，选中第一个
-          setSelectedTraderId(traders[0].trader_id)
-        }
-      } else {
-        setSelectedTraderId(traders[0].trader_id)
+    if (!traders || traders.length === 0) {
+      return
+    }
+
+    if (selectedTraderSlug) {
+      // 通过 slug 找到对应的 trader
+      const trader = findTraderBySlug(selectedTraderSlug, traders)
+      const nextTraderId = trader?.trader_id || traders[0].trader_id
+      if (nextTraderId !== selectedTraderId) {
+        setSelectedTraderId(nextTraderId)
       }
+      return
+    }
+
+    if (!selectedTraderId) {
+      setSelectedTraderId(traders[0].trader_id)
     }
   }, [traders, selectedTraderId, selectedTraderSlug])
 
@@ -226,7 +241,7 @@ function App() {
     currentPage === 'trader' && selectedTraderId
       ? `status-${selectedTraderId}`
       : null,
-    () => api.getStatus(selectedTraderId),
+    () => api.getStatus(selectedTraderId, true),
     {
       refreshInterval: 15000, // 15秒刷新（配合后端15秒缓存）
       revalidateOnFocus: false, // 禁用聚焦时重新验证，减少请求
@@ -238,11 +253,16 @@ function App() {
     currentPage === 'trader' && selectedTraderId
       ? `account-${selectedTraderId}`
       : null,
-    () => api.getAccount(selectedTraderId),
+    () => api.getAccount(selectedTraderId, true),
     {
-      refreshInterval: 15000, // 15秒刷新（配合后端15秒缓存）
-      revalidateOnFocus: false, // 禁用聚焦时重新验证，减少请求
-      dedupingInterval: 10000, // 10秒去重，防止短时间内重复请求
+      refreshInterval: accountPollOff ? 0 : 15000,
+      revalidateOnFocus: false,
+      dedupingInterval: 10000,
+      onErrorRetry: (_err, _key, _config, revalidate, { retryCount }) => {
+        if (retryCount >= 2) { setAccountPollOff(true); return }
+        setTimeout(() => revalidate({ retryCount }), 500)
+      },
+      onSuccess: () => { if (accountPollOff) setAccountPollOff(false) },
     }
   )
 
@@ -250,11 +270,16 @@ function App() {
     currentPage === 'trader' && selectedTraderId
       ? `positions-${selectedTraderId}`
       : null,
-    () => api.getPositions(selectedTraderId),
+    () => api.getPositions(selectedTraderId, true),
     {
-      refreshInterval: 15000, // 15秒刷新（配合后端15秒缓存）
-      revalidateOnFocus: false, // 禁用聚焦时重新验证，减少请求
-      dedupingInterval: 10000, // 10秒去重，防止短时间内重复请求
+      refreshInterval: positionsPollOff ? 0 : 15000,
+      revalidateOnFocus: false,
+      dedupingInterval: 10000,
+      onErrorRetry: (_err, _key, _config, revalidate, { retryCount }) => {
+        if (retryCount >= 2) { setPositionsPollOff(true); return }
+        setTimeout(() => revalidate({ retryCount }), 500)
+      },
+      onSuccess: () => { if (positionsPollOff) setPositionsPollOff(false) },
     }
   )
 
@@ -262,11 +287,16 @@ function App() {
     currentPage === 'trader' && selectedTraderId
       ? `decisions/latest-${selectedTraderId}-${decisionsLimit}`
       : null,
-    () => api.getLatestDecisions(selectedTraderId, decisionsLimit),
+    () => api.getLatestDecisions(selectedTraderId, decisionsLimit, true),
     {
-      refreshInterval: 30000, // 30秒刷新（决策更新频率较低）
+      refreshInterval: decisionsPollOff ? 0 : 30000,
       revalidateOnFocus: false,
       dedupingInterval: 20000,
+      onErrorRetry: (_err, _key, _config, revalidate, { retryCount }) => {
+        if (retryCount >= 2) { setDecisionsPollOff(true); return }
+        setTimeout(() => revalidate({ retryCount }), 500)
+      },
+      onSuccess: () => { if (decisionsPollOff) setDecisionsPollOff(false) },
     }
   )
 
@@ -274,7 +304,7 @@ function App() {
     currentPage === 'trader' && selectedTraderId
       ? `statistics-${selectedTraderId}`
       : null,
-    () => api.getStatistics(selectedTraderId),
+    () => api.getStatistics(selectedTraderId, true),
     {
       refreshInterval: 30000, // 30秒刷新（统计数据更新频率较低）
       revalidateOnFocus: false,
@@ -291,6 +321,10 @@ function App() {
 
   const selectedTrader = traders?.find((t) => t.trader_id === selectedTraderId)
 
+  const effectiveAccount = account
+  const effectivePositions = positions
+  const effectiveDecisions = decisions
+
   // Handle routing
   useEffect(() => {
     const handlePopState = () => {
@@ -302,7 +336,9 @@ function App() {
 
   // Set current page based on route for consistent navigation state
   useEffect(() => {
-    if (route === '/competition') {
+    if (route === '/welcome') {
+      setCurrentPage('traders')
+    } else if (route === '/competition') {
       setCurrentPage('competition')
     } else if (route === '/traders') {
       setCurrentPage('traders')
@@ -310,6 +346,9 @@ function App() {
       setCurrentPage('trader')
     }
   }, [route])
+
+  const showBeginnerOnboarding =
+    route === '/welcome' && (!!user || hasPersistedAuth) && getUserMode() === 'beginner' && !hasCompletedBeginnerOnboarding()
 
   // Show loading spinner while checking auth or config
   if (isLoading || configLoading) {
@@ -347,6 +386,16 @@ function App() {
     }
     return <SetupPage />
   }
+  if (route === '/welcome') {
+    if ((!user || !token) && !hasPersistedAuth) {
+      window.location.href = '/login'
+      return null
+    }
+    if (getUserMode() !== 'beginner') {
+      window.location.href = '/traders'
+      return null
+    }
+  }
   if (route === '/faq') {
     return (
       <div
@@ -376,7 +425,7 @@ function App() {
     return <ResetPasswordPage />
   }
   if (route === '/settings') {
-    if (!user || !token) {
+    if ((!user || !token) && !hasPersistedAuth) {
       window.location.href = '/login'
       return null
     }
@@ -398,19 +447,7 @@ function App() {
   // Data page - publicly accessible with embedded dashboard
   if (route === '/data') {
     const dataPageNavigate = (page: Page) => {
-      const pathMap: Record<string, string> = {
-        'data': '/data',
-        'competition': '/competition',
-        'strategy-market': '/strategy-market',
-        'traders': '/traders',
-        'trader': '/dashboard',
-        'strategy': '/strategy',
-        'faq': '/faq',
-      }
-      const path = pathMap[page]
-      if (path) {
-        window.location.href = path
-      }
+      navigateToPage(page)
     }
     return (
       <div
@@ -484,7 +521,18 @@ function App() {
               <AITradersPage
                 onTraderSelect={(traderId) => {
                   setSelectedTraderId(traderId)
-                  window.history.pushState({}, '', '/dashboard')
+                  const trader = traders?.find((item) => item.trader_id === traderId)
+                  const url = new URL(window.location.href)
+                  url.pathname = '/dashboard'
+                  if (trader) {
+                    const slug = getTraderSlug(trader)
+                    url.searchParams.set('trader', slug)
+                    setSelectedTraderSlug(slug)
+                  } else {
+                    url.searchParams.delete('trader')
+                    setSelectedTraderSlug(undefined)
+                  }
+                  window.history.pushState({}, '', url.toString())
                   setRoute('/dashboard')
                   setCurrentPage('trader')
                 }}
@@ -495,9 +543,12 @@ function App() {
               <TraderDashboardPage
                 selectedTrader={selectedTrader}
                 status={status}
-                account={account}
-                positions={positions}
-                decisions={decisions}
+                account={effectiveAccount}
+                accountFailed={accountPollOff}
+                positions={effectivePositions}
+                positionsFailed={positionsPollOff}
+                decisions={effectiveDecisions}
+                decisionsFailed={decisionsPollOff}
                 decisionsLimit={decisionsLimit}
                 onDecisionsLimitChange={setDecisionsLimit}
                 stats={stats}
@@ -511,8 +562,10 @@ function App() {
                   // 更新 URL 参数（使用 slug: name-id前4位）
                   const trader = traders?.find(t => t.trader_id === traderId)
                   if (trader) {
+                    const slug = getTraderSlug(trader)
+                    setSelectedTraderSlug(slug)
                     const url = new URL(window.location.href)
-                    url.searchParams.set('trader', getTraderSlug(trader))
+                    url.searchParams.set('trader', slug)
                     window.history.replaceState({}, '', url.toString())
                   }
                 }}
@@ -646,6 +699,8 @@ function App() {
         onClose={() => setLoginOverlayOpen(false)}
         featureName={loginOverlayFeature}
       />
+
+      {showBeginnerOnboarding && <BeginnerOnboardingPage />}
     </div>
   )
 }

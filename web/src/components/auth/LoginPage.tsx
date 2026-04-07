@@ -5,6 +5,9 @@ import { useAuth } from '../../contexts/AuthContext'
 import { useLanguage } from '../../contexts/LanguageContext'
 import { t } from '../../i18n/translations'
 import { DeepVoidBackground } from '../common/DeepVoidBackground'
+import { LanguageSwitcher } from '../common/LanguageSwitcher'
+import { OnboardingModeSelector } from './OnboardingModeSelector'
+import type { UserMode } from '../../lib/onboarding'
 
 export function LoginPage() {
   const { language } = useLanguage()
@@ -15,7 +18,16 @@ export function LoginPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [expiredToastId, setExpiredToastId] = useState<string | number | null>(null)
+  const [mode, setMode] = useState<UserMode>('beginner')
 
+  // Clean up stale auth state once on mount
+  useEffect(() => {
+    localStorage.removeItem('auth_token')
+    localStorage.removeItem('auth_user')
+    localStorage.removeItem('user_id')
+  }, [])
+
+  // Show session-expired toast (re-runs on language change to update text)
   useEffect(() => {
     if (sessionStorage.getItem('from401') === 'true') {
       const id = toast.warning(t('sessionExpired', language), { duration: Infinity })
@@ -28,7 +40,7 @@ export function LoginPage() {
     e.preventDefault()
     setError('')
     setLoading(true)
-    const result = await login(email, password)
+    const result = await login(email, password, mode)
     setLoading(false)
     if (result.success) {
       if (expiredToastId) toast.dismiss(expiredToastId)
@@ -41,6 +53,8 @@ export function LoginPage() {
 
   return (
     <DeepVoidBackground disableAnimation>
+      <LanguageSwitcher />
+
       <div className="flex-1 flex items-center justify-center px-4 py-16">
         <div className="w-full max-w-sm">
 
@@ -108,6 +122,12 @@ export function LoginPage() {
                   </button>
                 </div>
               </div>
+
+              <OnboardingModeSelector
+                language={language}
+                mode={mode}
+                onChange={setMode}
+              />
 
               {/* Error */}
               {error && (
