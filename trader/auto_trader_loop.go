@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"nofx/kernel"
 	"nofx/logger"
+	"nofx/market"
 	"nofx/store"
 	"nofx/wallet"
 	"strings"
@@ -207,6 +208,7 @@ func (at *AutoTrader) runCycle() error {
 
 	// 8. Sort decisions: ensure close positions first, then open positions (prevent position stacking overflow)
 	sortedDecisions := sortDecisionsByPriority(aiDecision.Decisions)
+	sortedDecisions = at.filterDecisionsToStrategyUniverse(sortedDecisions, ctx)
 
 	logger.Info("🔄 Execution order (optimized): Close positions first → Open positions later")
 	for i, d := range sortedDecisions {
@@ -284,6 +286,52 @@ func (at *AutoTrader) runCycle() error {
 	}
 
 	return nil
+}
+
+func normalizeUniverseSymbol(symbol string) string {
+	return market.Normalize(strings.TrimSpace(symbol))
+}
+
+func isOpenDecision(action string) bool {
+	a := strings.ToLower(strings.TrimSpace(action))
+	return a == "open_long" || a == "open_short"
+}
+
+func (at *AutoTrader) filterDecisionsToStrategyUniverse(decisions []kernel.Decision, ctx *kernel.Context) []kernel.Decision {
+	if ctx == nil || len(decisions) == 0 {
+		return decisions
+	}
+
+	allowed := make(map[string]bool, len(ctx.CandidateCoins))
+	for _, coin := range ctx.CandidateCoins {
+		allowed[normalizeUniverseSymbol(coin.Symbol)] = true
+	}
+
+	positions := make(map[string]bool, len(ctx.Positions))
+	for _, pos := range ctx.Positions {
+		positions[normalizeUniverseSymbol(pos.Symbol)] = true
+	}
+
+	filtered := make([]kernel.Decision, 0, len(decisions))
+	for _, d := range decisions {
+		sym := normalizeUniverseSymbol(d.Symbol)
+		if sym == "" || sym == "ALL" {
+			filtered = append(filtered, d)
+			continue
+		}
+
+		if allowed[sym] || positions[sym] {
+			filtered = append(filtered, d)
+			continue
+		}
+
+		if isOpenDecision(d.Action) {
+			at.logWarnf("🚫 Blocked AI %s for %s: symbol is outside strategy candidate universe", d.Action, d.Symbol)
+		} else {
+			at.logWarnf("🚫 Dropped AI decision for %s: symbol is outside strategy candidate universe", d.Symbol)
+		}
+	}
+	return filtered
 }
 
 // buildTradingContext builds trading context
