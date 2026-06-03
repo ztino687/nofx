@@ -62,9 +62,13 @@ var xyzDexAssets = map[string]bool{
 // defaultBuilder is the builder info for order routing.
 // Users approve this builder during the top-right Hyperliquid connect flow before
 // their generated agent wallet is saved for live trading.
+//
+// Fee is in tenths of a basis point: 50 = 5 bps = 0.05% (万5). Existing
+// approvals at the prior 0.1% cap remain valid on-chain because 0.05% is
+// still within their approved max.
 var defaultBuilder = &hyperliquid.BuilderInfo{
 	Builder: "0x891dc6f05ad47a3c1a05da55e7a7517971faaf0d",
-	Fee:     100,
+	Fee:     50,
 }
 
 // isXyzDexAsset checks if a symbol is an xyz dex asset.
@@ -133,15 +137,21 @@ func NewHyperliquidTrader(privateKeyHex string, walletAddr string, testnet bool,
 
 	ctx := context.Background()
 
-	// Create Exchange client (Exchange includes Info functionality)
+	// Create Exchange client (Exchange includes Info functionality).
+	// v0.36 signature: ctx, privateKey, baseURL, meta, vaultAddr, accountAddr,
+	// spotMeta, perpDexs, ...opts. nil values are auto-fetched on first use.
+	// v0.36 fixed the spot-meta indexing panic that crashed earlier versions
+	// when Hyperliquid added new spot tokens whose Tokens[0] index pointed
+	// past the Tokens array end.
 	exchange := hyperliquid.NewExchange(
 		ctx,
 		privateKey,
 		apiURL,
-		nil,        // Meta will be fetched automatically
+		nil,        // Meta — fetched automatically
 		"",         // vault address (empty for personal account)
 		walletAddr, // wallet address
-		nil,        // SpotMeta will be fetched automatically
+		nil,        // SpotMeta — fetched automatically
+		nil,        // perpDexs — fetched automatically
 	)
 
 	logger.Infof("✓ Hyperliquid trader initialized successfully (testnet=%v, wallet=%s)", testnet, walletAddr)

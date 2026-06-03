@@ -102,9 +102,11 @@ func (s *Server) handleRegister(c *gin.Context) {
 		return
 	}
 
-	// Adopt orphan records from previous account (e.g. after account reset)
-	// This preserves wallet keys and exchange configs so funds are not lost.
-	s.adoptOrphanRecords(userID)
+	// NOTE: Orphan record adoption was removed for security reasons. Previously,
+	// after a reset-account call, any new user would inherit the prior owner's
+	// wallet keys and exchange API credentials — a catastrophic IDOR/takeover
+	// path. Operators who need to migrate credentials across users must do so
+	// explicitly via export/import, never via implicit adoption on registration.
 
 	// Generate JWT token
 	token, err := auth.GenerateJWT(user.ID, user.Email)
@@ -189,53 +191,108 @@ func (s *Server) handleChangePassword(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Password updated"})
 }
 
-// handleResetPassword Reset password via email and new password
+// resetPasswordConfirmPhrase is the friction step for /api/reset-password.
+// Same security rationale as resetAccountConfirmPhrase — not a cryptographic
+// check, just a guard against accidental and drive-by triggers.
+const resetPasswordConfirmPhrase = "I_UNDERSTAND_THIS_RESETS_MY_PASSWORD"
+
+// handleResetPassword resets the password for the given email.
+//
+// SECURITY NOTE: This endpoint is intentionally callable without a JWT — it
+// IS the recovery path for "forgot password" in the single-user self-hosted
+// threat model this project targets. A logged-in user changes password via
+// PUT /api/user/password; this endpoint exists for users who can no longer
+// log in. Mitigations:
+//
+//  1. Requires the confirm phrase (blocks accidental and drive-by triggers).
+//  2. New password must be ≥ 8 chars.
+//  3. Authenticated session change is preferred (PUT /api/user/password).
+//
+// Operators exposing the API to the public internet should put a reverse-proxy
+// auth layer in front of /api/reset-password OR set up out-of-band recovery
+// (email link, OTP) instead of relying on this endpoint.
 func (s *Server) handleResetPassword(c *gin.Context) {
 	var req struct {
 		Email       string `json:"email" binding:"required,email"`
-		NewPassword string `json:"new_password" binding:"required,min=6"`
+		NewPassword string `json:"new_password" binding:"required,min=8"`
+		Confirm     string `json:"confirm"`
 	}
-
 	if err := c.ShouldBindJSON(&req); err != nil {
-		SafeBadRequest(c, "Invalid request parameters")
+		SafeBadRequest(c, "email, new_password (min 8 chars), and confirm are required")
+		return
+	}
+	if req.Confirm != resetPasswordConfirmPhrase {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Confirmation phrase required",
+			"hint":  `Body must include {"confirm":"` + resetPasswordConfirmPhrase + `"}`,
+		})
 		return
 	}
 
-	// Query user
 	user, err := s.store.User().GetByEmail(req.Email)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Email does not exist"})
 		return
 	}
 
-	// Generate new password hash
 	newPasswordHash, err := auth.HashPassword(req.NewPassword)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Password processing failed"})
+		SafeInternalError(c, "Password processing failed", err)
+		return
+	}
+	if err := s.store.User().UpdatePassword(user.ID, newPasswordHash); err != nil {
+		SafeInternalError(c, "Password update failed", err)
 		return
 	}
 
-	// Update password
-	err = s.store.User().UpdatePassword(user.ID, newPasswordHash)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Password update failed"})
-		return
-	}
-
-	logger.Infof("✓ User %s password has been reset", user.Email)
+	logger.Infof("✓ User %s password reset via reset endpoint", user.Email)
 	c.JSON(http.StatusOK, gin.H{"message": "Password reset successful, please login with new password"})
 }
 
-// handleResetAccount clears user authentication data so the system returns to
-// uninitialized state for re-registration. Wallet keys (ai_models) are preserved
-// so funds are not lost — they will be adopted by the new account during onboarding.
+// resetAccountConfirmPhrase must appear in the request body for /api/reset-account.
+// This is the single intentional friction step that prevents accidental wipes
+// from drive-by scripts and crawlers. It is NOT a cryptographic check — anyone
+// who reads this source can send the phrase. The real safety comes from:
+//
+//  1. Wallet keys are NO LONGER auto-adopted by the next registrant
+//     (adoptOrphanRecords was removed). The historical takeover path was:
+//     reset → register → inherit prior wallet → drain. That path is closed.
+//  2. The destructive action is loud (logged at Warn level).
+//
+// Operators who expose the API to the public internet and want stronger
+// gating can wrap this route with a reverse-proxy auth header check.
+const resetAccountConfirmPhrase = "I_UNDERSTAND_THIS_DELETES_EVERYTHING"
+
+// handleResetAccount wipes all users + traders + strategies + AI models +
+// exchanges, returning the system to uninitialized state.
+//
+// SECURITY NOTE: For the single-user, self-hosted threat model this project
+// targets, this endpoint is intentionally callable without a JWT — the
+// frontend "forgot account" button must still work after the user forgets
+// their password. The confirm phrase blocks accidental and drive-by triggers;
+// the removal of orphan adoption blocks the post-reset takeover. A determined
+// attacker on a public-facing deployment can still grief by wiping local
+// state, but they cannot steal funds (everything is deleted, not transferred).
 func (s *Server) handleResetAccount(c *gin.Context) {
+	var req struct {
+		Confirm string `json:"confirm"`
+	}
+	_ = c.ShouldBindJSON(&req)
+	if req.Confirm != resetAccountConfirmPhrase {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Confirmation phrase required",
+			"hint":  `Body must include {"confirm":"` + resetAccountConfirmPhrase + `"}`,
+		})
+		return
+	}
+
 	err := s.store.Transaction(func(tx *gorm.DB) error {
-		// Delete traders and strategies (config, not funds)
+		// Wipe ALL records — including wallet keys and exchange credentials.
+		// Preserving them across user identities is what enabled the takeover.
 		tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&store.Trader{})
 		tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&store.Strategy{})
-		// Delete users — ai_models and exchanges are intentionally kept
-		// so wallet private keys and exchange configs survive re-registration
+		tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&store.AIModel{})
+		tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&store.Exchange{})
 		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&store.User{}).Error; err != nil {
 			return fmt.Errorf("failed to delete users: %w", err)
 		}
@@ -246,28 +303,10 @@ func (s *Server) handleResetAccount(c *gin.Context) {
 		return
 	}
 
-	logger.Infof("✓ User accounts cleared (wallets preserved) — system reset to uninitialized")
-	c.JSON(http.StatusOK, gin.H{"message": "Account reset successful, you can now register a new account"})
-}
-
-// adoptOrphanRecords re-assigns ai_models and exchanges whose user_id no longer
-// exists in the users table. This happens after account reset so the new user
-// inherits the previous wallet keys and exchange configurations.
-func (s *Server) adoptOrphanRecords(newUserID string) {
-	db := s.store.GormDB()
-	result := db.Model(&store.AIModel{}).
-		Where("user_id NOT IN (SELECT id FROM users)").
-		Update("user_id", newUserID)
-	if result.RowsAffected > 0 {
-		logger.Infof("✓ Adopted %d orphan ai_model(s) for new user %s", result.RowsAffected, newUserID)
-	}
-
-	result = db.Model(&store.Exchange{}).
-		Where("user_id NOT IN (SELECT id FROM users)").
-		Update("user_id", newUserID)
-	if result.RowsAffected > 0 {
-		logger.Infof("✓ Adopted %d orphan exchange(s) for new user %s", result.RowsAffected, newUserID)
-	}
+	logger.Warnf("⚠ Account reset performed — all users, traders, strategies, ai_models, exchanges wiped")
+	c.JSON(http.StatusOK, gin.H{
+		"message": "System wiped. All wallet keys and exchange credentials were deleted. Register a fresh account and re-import everything.",
+	})
 }
 
 // initUserDefaultConfigs Initialize default configs for new user
