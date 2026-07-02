@@ -116,8 +116,8 @@ type TraderPosition struct {
 	Status             string  `gorm:"column:status;default:OPEN;index:idx_positions_status" json:"status"`
 	CloseReason        string  `gorm:"column:close_reason;default:''" json:"close_reason"`
 	Source             string  `gorm:"column:source;default:system" json:"source"`
-	CreatedAt          int64   `gorm:"column:created_at" json:"created_at"`   // Unix milliseconds UTC
-	UpdatedAt          int64   `gorm:"column:updated_at" json:"updated_at"`   // Unix milliseconds UTC
+	CreatedAt          int64   `gorm:"column:created_at" json:"created_at"` // Unix milliseconds UTC
+	UpdatedAt          int64   `gorm:"column:updated_at" json:"updated_at"` // Unix milliseconds UTC
 }
 
 // TableName returns the table name
@@ -198,14 +198,14 @@ func (s *PositionStore) Create(pos *TraderPosition) error {
 func (s *PositionStore) ClosePosition(id int64, exitPrice float64, exitOrderID string, realizedPnL float64, fee float64, closeReason string) error {
 	nowMs := time.Now().UTC().UnixMilli()
 	return s.db.Model(&TraderPosition{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"exit_price":   exitPrice,
+		"exit_price":    exitPrice,
 		"exit_order_id": exitOrderID,
-		"exit_time":    nowMs,
-		"realized_pnl": realizedPnL,
-		"fee":          fee,
-		"status":       "CLOSED",
-		"close_reason": closeReason,
-		"updated_at":   nowMs,
+		"exit_time":     nowMs,
+		"realized_pnl":  realizedPnL,
+		"fee":           fee,
+		"status":        "CLOSED",
+		"close_reason":  closeReason,
+		"updated_at":    nowMs,
 	}).Error
 }
 
@@ -311,15 +311,15 @@ func (s *PositionStore) ClosePositionFully(id int64, exitPrice float64, exitOrde
 	}
 
 	return s.db.Model(&TraderPosition{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"quantity":       quantity,
-		"exit_price":     exitPrice,
-		"exit_order_id":  exitOrderID,
-		"exit_time":      exitTimeMs,
-		"realized_pnl":   totalRealizedPnL,
-		"fee":            totalFee,
-		"status":         "CLOSED",
-		"close_reason":   closeReason,
-		"updated_at":     time.Now().UTC().UnixMilli(),
+		"quantity":      quantity,
+		"exit_price":    exitPrice,
+		"exit_order_id": exitOrderID,
+		"exit_time":     exitTimeMs,
+		"realized_pnl":  totalRealizedPnL,
+		"fee":           totalFee,
+		"status":        "CLOSED",
+		"close_reason":  closeReason,
+		"updated_at":    time.Now().UTC().UnixMilli(),
 	}).Error
 }
 
@@ -350,7 +350,7 @@ func (s *PositionStore) GetOpenPositions(traderID string) ([]*TraderPosition, er
 // GetOpenPositionBySymbol gets open position for specified symbol and direction
 func (s *PositionStore) GetOpenPositionBySymbol(traderID, symbol, side string) (*TraderPosition, error) {
 	var pos TraderPosition
-	err := s.db.Where("trader_id = ? AND symbol = ? AND side = ? AND status = ?", traderID, symbol, side, "OPEN").
+	err := s.db.Where("trader_id = ? AND symbol = ? AND UPPER(side) = UPPER(?) AND status = ?", traderID, symbol, side, "OPEN").
 		Order("entry_time DESC").
 		First(&pos).Error
 
@@ -365,7 +365,7 @@ func (s *PositionStore) GetOpenPositionBySymbol(traderID, symbol, side string) (
 		// Try without USDT suffix for backward compatibility
 		if strings.HasSuffix(symbol, "USDT") {
 			baseSymbol := strings.TrimSuffix(symbol, "USDT")
-			err = s.db.Where("trader_id = ? AND symbol = ? AND side = ? AND status = ?", traderID, baseSymbol, side, "OPEN").
+			err = s.db.Where("trader_id = ? AND symbol = ? AND UPPER(side) = UPPER(?) AND status = ?", traderID, baseSymbol, side, "OPEN").
 				Order("entry_time DESC").
 				First(&pos).Error
 			if err == nil {
@@ -382,11 +382,54 @@ func (s *PositionStore) GetOpenPositionBySymbol(traderID, symbol, side string) (
 
 // GetClosedPositions gets closed positions
 func (s *PositionStore) GetClosedPositions(traderID string, limit int) ([]*TraderPosition, error) {
+	return s.GetClosedPositionsByTraderFilters([]string{traderID}, nil, limit)
+}
+
+func (s *PositionStore) closedPositionsByTraderFilters(traderIDs []string, traderIDPatterns []string) *gorm.DB {
+	query := s.db.Where("status = ?", "CLOSED")
+
+	conditions := make([]string, 0, len(traderIDs)+len(traderIDPatterns))
+	args := make([]interface{}, 0, len(traderIDs)+len(traderIDPatterns))
+
+	cleanTraderIDs := make([]string, 0, len(traderIDs))
+	for _, traderID := range traderIDs {
+		traderID = strings.TrimSpace(traderID)
+		if traderID != "" {
+			cleanTraderIDs = append(cleanTraderIDs, traderID)
+		}
+	}
+	if len(cleanTraderIDs) > 0 {
+		conditions = append(conditions, "trader_id IN ?")
+		args = append(args, cleanTraderIDs)
+	}
+
+	for _, pattern := range traderIDPatterns {
+		pattern = strings.TrimSpace(pattern)
+		if pattern == "" {
+			continue
+		}
+		conditions = append(conditions, "trader_id LIKE ?")
+		args = append(args, pattern)
+	}
+
+	if len(conditions) == 0 {
+		return query.Where("1 = 0")
+	}
+
+	return query.Where("("+strings.Join(conditions, " OR ")+")", args...)
+}
+
+// GetClosedPositionsByTraderFilters gets closed positions for explicit trader IDs
+// and legacy trader ID patterns. Patterns are used only for same-user Autopilot
+// history continuity when an old trader row was deleted but its position records remain.
+func (s *PositionStore) GetClosedPositionsByTraderFilters(traderIDs []string, traderIDPatterns []string, limit int) ([]*TraderPosition, error) {
 	var positions []*TraderPosition
-	err := s.db.Where("trader_id = ? AND status = ?", traderID, "CLOSED").
-		Order("exit_time DESC").
-		Limit(limit).
-		Find(&positions).Error
+	query := s.closedPositionsByTraderFilters(traderIDs, traderIDPatterns).Order("exit_time DESC")
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+
+	err := query.Find(&positions).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to query closed positions: %w", err)
 	}

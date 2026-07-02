@@ -1,8 +1,22 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Check, ChevronDown, Copy, ExternalLink, Loader2, RefreshCw, Shield, Wallet, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  Check,
+  ChevronDown,
+  Copy,
+  Download,
+  ExternalLink,
+  Loader2,
+  RefreshCw,
+  Shield,
+  Wallet,
+  X,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../../lib/api'
-import type { HyperliquidAccountSummary } from '../../lib/api/wallet'
+import type {
+  HyperliquidAccountSummary,
+  HyperliquidAgentInfo,
+} from '../../lib/api/wallet'
 import type { Language } from '../../i18n/translations'
 
 declare global {
@@ -14,7 +28,10 @@ declare global {
 type WalletProvider = {
   request: (args: { method: string; params?: unknown[] }) => Promise<unknown>
   on?: (event: string, handler: (...args: unknown[]) => void) => void
-  removeListener?: (event: string, handler: (...args: unknown[]) => void) => void
+  removeListener?: (
+    event: string,
+    handler: (...args: unknown[]) => void
+  ) => void
   isMetaMask?: boolean
   isRabby?: boolean
   isOkxWallet?: boolean
@@ -33,6 +50,7 @@ interface HyperliquidWalletConnectProps {
   language: Language
   isLoggedIn: boolean
   variant?: 'dropdown' | 'inline'
+  onSaved?: () => void | Promise<void>
 }
 
 interface FlowState {
@@ -47,8 +65,18 @@ interface FlowState {
 
 const STORAGE_KEY = 'nofx.hyperliquid.connection.v6'
 const AGENT_NAME = 'NOFX Agent'
+// Hyperliquid caps agent validity at 180 days and otherwise defaults to ~90 days.
+// The validity is encoded in the agent name as a " valid_until <ms>" suffix
+// (separator is a single space; timestamp in milliseconds). Hyperliquid strips
+// this suffix from the stored/displayed name, so the named slot stays "NOFX Agent".
+// A 1-minute buffer keeps clock skew from pushing valid_until past the 180d cap.
+const AGENT_VALIDITY_MS = 180 * 24 * 60 * 60 * 1000 - 60 * 1000
+
+function buildAgentName(nowMs: number) {
+  return `${AGENT_NAME} valid_until ${nowMs + AGENT_VALIDITY_MS}`
+}
 const HYPERLIQUID_BUILDER_ADDRESS = '0x891dc6f05ad47a3c1a05da55e7a7517971faaf0d'
-// 0.05% (万5). Must match the server's defaultHyperliquidBuilderMaxFee and
+// 0.05% (5 bps). Must match the server's defaultHyperliquidBuilderMaxFee and
 // the BuilderInfo.Fee=50 (= 5 bps) used at order placement. The user signs
 // this exact string when approving the builder during wallet connect.
 const HYPERLIQUID_BUILDER_MAX_FEE = '0.05%'
@@ -69,13 +97,13 @@ function normalizeAddress(address: string) {
   return address.trim().toLowerCase()
 }
 
-
 function getWalletProviders(): WalletProvider[] {
   const injected = window.ethereum
   if (!injected) return []
-  const providers = Array.isArray(injected.providers) && injected.providers.length > 0
-    ? injected.providers
-    : [injected]
+  const providers =
+    Array.isArray(injected.providers) && injected.providers.length > 0
+      ? injected.providers
+      : [injected]
   const seen = new Set<WalletProvider>()
   return providers.filter((provider) => {
     if (!provider || seen.has(provider)) return false
@@ -86,23 +114,40 @@ function getWalletProviders(): WalletProvider[] {
 
 function getPreferredWalletProvider(): WalletProvider | undefined {
   const providers = getWalletProviders()
-  return providers.find((provider) => provider.isRabby)
-    || providers.find((provider) => provider.isMetaMask)
-    || providers.find((provider) => provider.isCoinbaseWallet)
-    || providers.find((provider) => provider.isPhantom)
-    || providers.find((provider) => provider.isBraveWallet)
-    || providers.find((provider) => provider.isBackpack)
-    || providers.find((provider) => provider.isOkxWallet)
-    || providers.find((provider) => provider.isTrust)
-    || providers.find((provider) => provider.isExodus)
-    || providers.find((provider) => provider.isFrame)
-    || providers[0]
+  return (
+    providers.find((provider) => provider.isRabby) ||
+    providers.find((provider) => provider.isMetaMask) ||
+    providers.find((provider) => provider.isCoinbaseWallet) ||
+    providers.find((provider) => provider.isPhantom) ||
+    providers.find((provider) => provider.isBraveWallet) ||
+    providers.find((provider) => provider.isBackpack) ||
+    providers.find((provider) => provider.isOkxWallet) ||
+    providers.find((provider) => provider.isTrust) ||
+    providers.find((provider) => provider.isExodus) ||
+    providers.find((provider) => provider.isFrame) ||
+    providers[0]
+  )
 }
 
 function walletSupportLabel(language: Language) {
   return language === 'zh'
-    ? '支持 MetaMask、Rabby、Coinbase、Phantom、Brave、Backpack、OKX、Trust 等 EVM 钱包。'
+    ? 'Supports MetaMask, Rabby, Coinbase, Phantom, Brave, Backpack, OKX, Trust and other EVM wallets.'
     : 'Supports MetaMask, Rabby, Coinbase Wallet, Phantom, Brave, Backpack, OKX, Trust and other EVM wallets.'
+}
+
+function formatAgentExpiry(validUntil: number, language: Language) {
+  const dateStr = new Date(validUntil).toLocaleString(
+    language === 'zh' ? 'zh-CN' : 'en-US',
+    {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    }
+  )
+  const daysLeft = Math.ceil((validUntil - Date.now()) / 86_400_000)
+  return { dateStr, daysLeft }
 }
 
 function formatUSDC(value?: number) {
@@ -132,7 +177,11 @@ function splitSignature(signature: string) {
   }
 }
 
-function buildTypedData(primaryType: string, fields: { name: string; type: string }[], message: Record<string, unknown>) {
+function buildTypedData(
+  primaryType: string,
+  fields: { name: string; type: string }[],
+  message: Record<string, unknown>
+) {
   return {
     domain: {
       name: 'HyperliquidSignTransaction',
@@ -171,56 +220,109 @@ function saveState(state: FlowState) {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(safeState))
 }
 
-export function HyperliquidWalletConnect({ language, isLoggedIn, variant = 'dropdown' }: HyperliquidWalletConnectProps) {
+export function HyperliquidWalletConnect({
+  language,
+  isLoggedIn,
+  variant = 'dropdown',
+  onSaved,
+}: HyperliquidWalletConnectProps) {
   const inline = variant === 'inline'
   const [open, setOpen] = useState(inline)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [state, setState] = useState<FlowState>(() => getSavedState())
+  const currentMainWalletRef = useRef(state.mainWallet)
+  currentMainWalletRef.current = state.mainWallet
   const [account, setAccount] = useState<HyperliquidAccountSummary | null>(null)
   const [balanceLoading, setBalanceLoading] = useState(false)
   const [balanceError, setBalanceError] = useState('')
+  const [agentInfo, setAgentInfo] = useState<HyperliquidAgentInfo | null>(null)
+  const [agentInfoLoading, setAgentInfoLoading] = useState(false)
+  const [hasWalletProvider, setHasWalletProvider] = useState(false)
   const text = useMemo(
     () => ({
-      title: language === 'zh' ? 'Hyperliquid 钱包' : 'Hyperliquid Wallet',
-      connect: language === 'zh' ? '连接 Hyperliquid' : 'Connect Hyperliquid',
-      connected: language === 'zh' ? '已连接' : 'Connected',
-      mainWallet: language === 'zh' ? 'EVM 主钱包' : 'EVM main wallet',
-      generateAgent: language === 'zh' ? '生成 NOFX Agent 钱包' : 'Generate NOFX agent wallet',
-      approveAgent: language === 'zh' ? '授权 Agent 交易' : 'Authorize agent trading',
-      approveBuilder: language === 'zh' ? '完成交易授权' : 'Finalize trading authorization',
-      save: language === 'zh' ? '保存到 NOFX' : 'Save to NOFX',
-      done: language === 'zh' ? '流程已完成' : 'Flow complete',
-      balance: language === 'zh' ? 'Hyperliquid 余额' : 'Hyperliquid balance',
-      withdrawable: language === 'zh' ? '可用' : 'Withdrawable',
-      equity: language === 'zh' ? '权益' : 'Equity',
-      marginUsed: language === 'zh' ? '已用保证金' : 'Margin used',
-      unrealizedPnl: language === 'zh' ? '未实现盈亏' : 'Unrealized PnL',
-      refresh: language === 'zh' ? '刷新' : 'Refresh',
-      noCustody: language === 'zh' ? '资金保留在你的 Hyperliquid 账户；NOFX 只保存已授权 Agent 钱包。' : 'Funds stay in your Hyperliquid account; NOFX only stores the authorized agent wallet.',
+      title: language === 'zh' ? 'Hyperliquid Wallet' : 'Hyperliquid Wallet',
+      connect: language === 'zh' ? 'Connect Hyperliquid' : 'Connect Hyperliquid',
+      connected: language === 'zh' ? 'Connected' : 'Connected',
+      mainWallet: language === 'zh' ? 'EVM main wallet' : 'EVM main wallet',
+      generateAgent:
+        language === 'zh'
+          ? 'Generate NOFX agent wallet'
+          : 'Generate NOFX agent wallet',
+      approveAgent:
+        language === 'zh' ? 'Authorize agent trading' : 'Authorize agent trading',
+      approveBuilder:
+        language === 'zh' ? 'Finalize trading authorization' : 'Finalize trading authorization',
+      save: language === 'zh' ? 'Save to NOFX' : 'Save to NOFX',
+      done: language === 'zh' ? 'Flow complete' : 'Flow complete',
+      balance: language === 'zh' ? 'Hyperliquid balance' : 'Hyperliquid balance',
+      withdrawable: language === 'zh' ? 'Withdrawable' : 'Withdrawable',
+      equity: language === 'zh' ? 'Equity' : 'Equity',
+      marginUsed: language === 'zh' ? 'Margin used' : 'Margin used',
+      unrealizedPnl: language === 'zh' ? 'Unrealized PnL' : 'Unrealized PnL',
+      refresh: language === 'zh' ? 'Refresh' : 'Refresh',
+      noCustody:
+        language === 'zh'
+          ? 'Funds stay in your Hyperliquid account; NOFX only stores the authorized agent wallet.'
+          : 'Funds stay in your Hyperliquid account; NOFX only stores the authorized agent wallet.',
+      agentExpiry:
+        language === 'zh' ? 'Agent authorization expires' : 'Agent authorization expires',
+      agentExpired: language === 'zh' ? 'Expired' : 'Expired',
+      agentNoAuth:
+        language === 'zh'
+          ? 'No NOFX agent authorization found'
+          : 'No NOFX agent authorization found',
+      renewAgent:
+        language === 'zh'
+          ? 'Renew agent authorization (+180d)'
+          : 'Renew agent authorization (+180d)',
+      renewHint:
+        language === 'zh'
+          ? 'Hyperliquid forbids reusing an agent, so renewal creates a new agent approved for 180 days, then updates the stored key in NOFX (sign-in required).'
+          : 'Hyperliquid forbids reusing an agent, so renewal creates a new agent approved for 180 days, then updates the stored key in NOFX (sign-in required).',
+      noWalletTitle:
+        language === 'zh' ? 'No EVM wallet detected' : 'No EVM wallet detected',
+      noWalletDetail:
+        language === 'zh'
+          ? 'Install Rabby or MetaMask, create or import a wallet, then return here to connect Hyperliquid.'
+          : 'Install Rabby or MetaMask, create or import a wallet, then return here to connect Hyperliquid.',
+      installRabby: language === 'zh' ? 'Install Rabby' : 'Install Rabby',
+      installMetaMask: language === 'zh' ? 'Install MetaMask' : 'Install MetaMask',
     }),
     [language]
   )
 
   useEffect(() => {
+    setHasWalletProvider(Boolean(getPreferredWalletProvider()))
+  }, [])
+
+  useEffect(() => {
     saveState(state)
   }, [state])
-
 
   useEffect(() => {
     if (!isLoggedIn || !state.mainWallet) return
     let cancelled = false
-    api.getExchangeConfigs()
+    api
+      .getExchangeConfigs()
       .then((configs) => {
         if (cancelled) return
-        const existing = configs.find((exchange) =>
-          exchange.exchange_type === 'hyperliquid' &&
-          normalizeAddress(exchange.hyperliquidWalletAddr || '') === normalizeAddress(state.mainWallet!)
+        const existing = configs.find(
+          (exchange) =>
+            exchange.exchange_type === 'hyperliquid' &&
+            normalizeAddress(exchange.hyperliquidWalletAddr || '') ===
+              normalizeAddress(state.mainWallet!)
         )
         if (!existing) return
         setState((prev) => {
-          if (normalizeAddress(prev.mainWallet || '') !== normalizeAddress(state.mainWallet!)) return prev
-          const serverBuilderApproved = Boolean(existing.hyperliquidBuilderApproved)
+          if (
+            normalizeAddress(prev.mainWallet || '') !==
+            normalizeAddress(state.mainWallet!)
+          )
+            return prev
+          const serverBuilderApproved = Boolean(
+            existing.hyperliquidBuilderApproved
+          )
           if (
             prev.savedExchangeId === existing.id &&
             prev.agentApproved === true &&
@@ -247,7 +349,10 @@ export function HyperliquidWalletConnect({ language, isLoggedIn, variant = 'drop
 
   useEffect(() => {
     const handler = (accounts: unknown) => {
-      const next = Array.isArray(accounts) && typeof accounts[0] === 'string' ? normalizeAddress(accounts[0]) : undefined
+      const next =
+        Array.isArray(accounts) && typeof accounts[0] === 'string'
+          ? normalizeAddress(accounts[0])
+          : undefined
       if (next) {
         setState((prev) => ({ ...prev, mainWallet: next }))
       }
@@ -260,8 +365,43 @@ export function HyperliquidWalletConnect({ language, isLoggedIn, variant = 'drop
   useEffect(() => {
     if (open && state.mainWallet) {
       void refreshBalance(state.mainWallet)
+      void refreshAgentInfo(state.mainWallet)
     }
   }, [open, state.mainWallet])
+
+  async function refreshAgentInfo(address = state.mainWallet) {
+    if (!address) return
+    const requestedAddress = normalizeAddress(address)
+    setAgentInfoLoading(true)
+    if (
+      normalizeAddress(currentMainWalletRef.current || '') === requestedAddress
+    ) {
+      setAgentInfo(null)
+    }
+    try {
+      const res = await api.getHyperliquidAgent(address)
+      if (
+        normalizeAddress(currentMainWalletRef.current || '') ===
+        requestedAddress
+      ) {
+        setAgentInfo(res.agent)
+      }
+    } catch {
+      if (
+        normalizeAddress(currentMainWalletRef.current || '') ===
+        requestedAddress
+      ) {
+        setAgentInfo(null)
+      }
+    } finally {
+      if (
+        normalizeAddress(currentMainWalletRef.current || '') ===
+        requestedAddress
+      ) {
+        setAgentInfoLoading(false)
+      }
+    }
+  }
 
   async function refreshBalance(address = state.mainWallet) {
     if (!address) return
@@ -272,7 +412,11 @@ export function HyperliquidWalletConnect({ language, isLoggedIn, variant = 'drop
       setAccount(summary)
     } catch (err) {
       setAccount(null)
-      setBalanceError(err instanceof Error ? err.message : 'Failed to load Hyperliquid balance')
+      setBalanceError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to load Hyperliquid balance'
+      )
     } finally {
       setBalanceLoading(false)
     }
@@ -282,15 +426,20 @@ export function HyperliquidWalletConnect({ language, isLoggedIn, variant = 'drop
     if (!isLoggedIn) return false
     try {
       const configs = await api.getExchangeConfigs()
-      const existing = configs.find((exchange) =>
-        exchange.exchange_type === 'hyperliquid' &&
-        normalizeAddress(exchange.hyperliquidWalletAddr || '') === normalizeAddress(address)
+      const existing = configs.find(
+        (exchange) =>
+          exchange.exchange_type === 'hyperliquid' &&
+          normalizeAddress(exchange.hyperliquidWalletAddr || '') ===
+            normalizeAddress(address)
       )
       if (!existing) return false
       setState((prev) => ({
         ...prev,
         mainWallet: normalizeAddress(address),
-        agentAddress: prev.mainWallet === normalizeAddress(address) ? prev.agentAddress : undefined,
+        agentAddress:
+          prev.mainWallet === normalizeAddress(address)
+            ? prev.agentAddress
+            : undefined,
         agentPrivateKey: undefined,
         agentApproved: true,
         // Existing configs default to false in the backend unless the exact
@@ -310,26 +459,59 @@ export function HyperliquidWalletConnect({ language, isLoggedIn, variant = 'drop
   const agentApprovedReady = Boolean(state.agentApproved || savedReady)
   const builderReady = Boolean(state.builderApproved)
   const steps: { key: keyof FlowState; label: string; status: StepStatus }[] = [
-    { key: 'mainWallet', label: text.mainWallet, status: state.mainWallet ? 'done' : 'active' },
-    { key: 'agentAddress', label: text.generateAgent, status: agentReady ? 'done' : state.mainWallet ? 'active' : 'pending' },
-    { key: 'agentApproved', label: text.approveAgent, status: agentApprovedReady ? 'done' : agentReady ? 'active' : 'pending' },
-    { key: 'builderApproved', label: text.approveBuilder, status: builderReady ? 'done' : agentApprovedReady ? 'active' : 'pending' },
-    { key: 'savedExchangeId', label: text.save, status: state.savedExchangeId ? 'done' : builderReady ? 'active' : 'pending' },
+    {
+      key: 'mainWallet',
+      label: text.mainWallet,
+      status: state.mainWallet ? 'done' : 'active',
+    },
+    {
+      key: 'agentAddress',
+      label: text.generateAgent,
+      status: agentReady ? 'done' : state.mainWallet ? 'active' : 'pending',
+    },
+    {
+      key: 'agentApproved',
+      label: text.approveAgent,
+      status: agentApprovedReady ? 'done' : agentReady ? 'active' : 'pending',
+    },
+    {
+      key: 'builderApproved',
+      label: text.approveBuilder,
+      status: builderReady ? 'done' : agentApprovedReady ? 'active' : 'pending',
+    },
+    {
+      key: 'savedExchangeId',
+      label: text.save,
+      status: state.savedExchangeId
+        ? 'done'
+        : builderReady
+          ? 'active'
+          : 'pending',
+    },
   ]
 
-  const complete = Boolean(state.mainWallet && state.savedExchangeId && state.builderApproved)
+  const complete = Boolean(
+    state.mainWallet && state.savedExchangeId && state.builderApproved
+  )
 
   async function connectWallet() {
     setError('')
     const provider = getPreferredWalletProvider()
     if (!provider) {
-      setError(language === 'zh' ? '未检测到 EVM 钱包，请安装 MetaMask / Rabby / OKX / Coinbase Wallet。' : 'No EVM wallet detected. Install MetaMask, Rabby, OKX or Coinbase Wallet.')
+      setError(
+        language === 'zh'
+          ? 'No EVM wallet detected. Install MetaMask, Rabby, OKX or Coinbase Wallet.'
+          : 'No EVM wallet detected. Install MetaMask, Rabby, OKX or Coinbase Wallet.'
+      )
       return
     }
     setBusy(true)
     try {
       const accounts = await provider.request({ method: 'eth_requestAccounts' })
-      const first = Array.isArray(accounts) && typeof accounts[0] === 'string' ? accounts[0] : ''
+      const first =
+        Array.isArray(accounts) && typeof accounts[0] === 'string'
+          ? accounts[0]
+          : ''
       if (!first) throw new Error('Wallet returned no account')
       const normalized = normalizeAddress(first)
       setState((prev) => {
@@ -372,21 +554,29 @@ export function HyperliquidWalletConnect({ language, isLoggedIn, variant = 'drop
       }))
       toast.success('NOFX agent wallet generated')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to generate agent wallet')
+      setError(
+        err instanceof Error ? err.message : 'Failed to generate agent wallet'
+      )
     } finally {
       setBusy(false)
     }
   }
 
-  async function signAndSubmit(action: Record<string, unknown>, primaryType: string, fields: { name: string; type: string }[]) {
+  async function signAndSubmit(
+    action: Record<string, unknown>,
+    primaryType: string,
+    fields: { name: string; type: string }[]
+  ) {
     const provider = getPreferredWalletProvider()
-    if (!provider || !state.mainWallet) throw new Error('Wallet is not connected')
+    if (!provider || !state.mainWallet)
+      throw new Error('Wallet is not connected')
     const typedData = buildTypedData(primaryType, fields, action)
     const raw = await provider.request({
       method: 'eth_signTypedData_v4',
       params: [state.mainWallet, JSON.stringify(typedData)],
     })
-    if (typeof raw !== 'string') throw new Error('Wallet returned an invalid signature')
+    if (typeof raw !== 'string')
+      throw new Error('Wallet returned an invalid signature')
     const signature = splitSignature(raw)
     await api.submitHyperliquidApproval(action, Number(action.nonce), signature)
   }
@@ -402,7 +592,7 @@ export function HyperliquidWalletConnect({ language, isLoggedIn, variant = 'drop
         signatureChainId: '0x66eee',
         hyperliquidChain: 'Mainnet',
         agentAddress: state.agentAddress,
-        agentName: AGENT_NAME,
+        agentName: buildAgentName(nonce),
         nonce,
       }
       await signAndSubmit(action, 'HyperliquidTransaction:ApproveAgent', [
@@ -411,10 +601,129 @@ export function HyperliquidWalletConnect({ language, isLoggedIn, variant = 'drop
         { name: 'agentName', type: 'string' },
         { name: 'nonce', type: 'uint64' },
       ])
-      setState((prev) => ({ ...prev, agentApproved: true, savedExchangeId: undefined }))
+      setState((prev) => ({
+        ...prev,
+        agentApproved: true,
+        savedExchangeId: undefined,
+      }))
       toast.success('Hyperliquid agent approved')
+      void refreshAgentInfo()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Agent approval failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function renewAgentAuthorization() {
+    setError('')
+    // Hyperliquid rejects re-approving an already-used agent ("Extra agent
+    // already used"), so renewal must register a BRAND-NEW agent under the same
+    // name — approving the same name replaces the old slot. The old agent key is
+    // invalidated on-chain, so the new private key must be re-saved to NOFX;
+    // that requires the user to be signed in.
+    if (!isLoggedIn) {
+      setError(
+        language === 'zh'
+          ? 'Renewal requires signing in: Hyperliquid forbids reusing the same agent, so renewal creates a new agent and updates the stored key.'
+          : 'Renewal requires signing in: Hyperliquid forbids reusing the same agent, so renewal creates a new agent and updates the stored key.'
+      )
+      return
+    }
+    if (!state.mainWallet) return
+    setBusy(true)
+    try {
+      const wallet = await api.generateWallet()
+      const newAgentAddress = normalizeAddress(wallet.address)
+      const nonce = Date.now()
+      const action = {
+        type: 'approveAgent',
+        signatureChainId: '0x66eee',
+        hyperliquidChain: 'Mainnet',
+        agentAddress: newAgentAddress,
+        agentName: buildAgentName(nonce),
+        nonce,
+      }
+      await signAndSubmit(action, 'HyperliquidTransaction:ApproveAgent', [
+        { name: 'hyperliquidChain', type: 'string' },
+        { name: 'agentAddress', type: 'address' },
+        { name: 'agentName', type: 'string' },
+        { name: 'nonce', type: 'uint64' },
+      ])
+      // Hold the new agent + key so the manual "Save to NOFX" button can recover
+      // if persisting the key below fails (savedExchangeId undefined keeps the
+      // key in localStorage and re-exposes the save step).
+      setState((prev) => ({
+        ...prev,
+        agentAddress: newAgentAddress,
+        agentPrivateKey: wallet.private_key,
+        agentApproved: true,
+        builderApproved: false,
+        savedExchangeId: undefined,
+        reusedSavedExchange: false,
+      }))
+      const existing = (await api.getExchangeConfigs()).find(
+        (exchange) =>
+          exchange.exchange_type === 'hyperliquid' &&
+          normalizeAddress(exchange.hyperliquidWalletAddr || '') ===
+            normalizeAddress(state.mainWallet!)
+      )
+      if (!existing) {
+        setState((prev) => ({
+          ...prev,
+          agentAddress: newAgentAddress,
+          agentPrivateKey: wallet.private_key,
+          agentApproved: true,
+          builderApproved: false,
+          savedExchangeId: undefined,
+          reusedSavedExchange: false,
+        }))
+        throw new Error(
+          language === 'zh'
+            ? 'New agent approved, but no matching NOFX config was found. Use "Save to NOFX" to store it.'
+            : 'New agent approved, but no matching NOFX config was found. Use "Save to NOFX" to store it.'
+        )
+      }
+      const existingBuilderApproved = Boolean(
+        existing.hyperliquidBuilderApproved
+      )
+      await api.updateExchangeConfigsEncrypted({
+        exchanges: {
+          [existing.id]: {
+            enabled: true,
+            api_key: wallet.private_key,
+            secret_key: '',
+            passphrase: '',
+            hyperliquid_wallet_addr: state.mainWallet,
+            hyperliquid_unified_account: true,
+            hyperliquid_builder_approved: existingBuilderApproved,
+            testnet: false,
+          },
+        },
+      })
+      setState((prev) => ({
+        ...prev,
+        agentAddress: newAgentAddress,
+        agentPrivateKey: undefined,
+        agentApproved: true,
+        builderApproved: existingBuilderApproved,
+        savedExchangeId: existing.id,
+        reusedSavedExchange: true,
+      }))
+      toast.success(
+        language === 'zh'
+          ? 'Agent renewed (new agent, valid 180 days)'
+          : 'Agent renewed (new agent, valid 180 days)'
+      )
+      await refreshAgentInfo()
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : language === 'zh'
+            ? 'Agent renewal failed'
+            : 'Agent renewal failed'
+      )
     } finally {
       setBusy(false)
     }
@@ -448,20 +757,32 @@ export function HyperliquidWalletConnect({ language, isLoggedIn, variant = 'drop
               secret_key: '',
               passphrase: '',
               hyperliquid_wallet_addr: state.mainWallet,
+              hyperliquid_unified_account: true,
               hyperliquid_builder_approved: true,
               testnet: false,
             },
           },
         })
+        await onSaved?.()
       }
       setState((prev) => ({
         ...prev,
         builderApproved: true,
-        savedExchangeId: prev.reusedSavedExchange ? prev.savedExchangeId : undefined,
+        savedExchangeId: prev.reusedSavedExchange
+          ? prev.savedExchangeId
+          : undefined,
       }))
-      toast.success(language === 'zh' ? '交易授权已完成' : 'Trading authorization finalized')
+      toast.success(
+        language === 'zh' ? 'Trading authorization finalized' : 'Trading authorization finalized'
+      )
     } catch (err) {
-      setError(err instanceof Error ? err.message : (language === 'zh' ? '交易授权失败' : 'Trading authorization failed'))
+      setError(
+        err instanceof Error
+          ? err.message
+          : language === 'zh'
+            ? 'Trading authorization failed'
+            : 'Trading authorization failed'
+      )
     } finally {
       setBusy(false)
     }
@@ -470,15 +791,21 @@ export function HyperliquidWalletConnect({ language, isLoggedIn, variant = 'drop
   async function saveExchange() {
     setError('')
     if (!isLoggedIn) {
-      setError(language === 'zh' ? '请先登录 NOFX，再保存 Agent 钱包用于交易。' : 'Please sign in before saving the agent wallet for trading.')
+      setError(
+        language === 'zh'
+          ? 'Please sign in before saving the agent wallet for trading.'
+          : 'Please sign in before saving the agent wallet for trading.'
+      )
       return
     }
     if (!state.mainWallet || !state.builderApproved) return
     setBusy(true)
     try {
-      const existing = (await api.getExchangeConfigs()).find((exchange) =>
-        exchange.exchange_type === 'hyperliquid' &&
-        normalizeAddress(exchange.hyperliquidWalletAddr || '') === normalizeAddress(state.mainWallet!)
+      const existing = (await api.getExchangeConfigs()).find(
+        (exchange) =>
+          exchange.exchange_type === 'hyperliquid' &&
+          normalizeAddress(exchange.hyperliquidWalletAddr || '') ===
+            normalizeAddress(state.mainWallet!)
       )
       if (existing) {
         await api.updateExchangeConfigsEncrypted({
@@ -489,17 +816,31 @@ export function HyperliquidWalletConnect({ language, isLoggedIn, variant = 'drop
               secret_key: '',
               passphrase: '',
               hyperliquid_wallet_addr: state.mainWallet,
+              hyperliquid_unified_account: true,
               hyperliquid_builder_approved: true,
               testnet: false,
             },
           },
         })
-        setState((prev) => ({ ...prev, agentPrivateKey: undefined, savedExchangeId: existing.id, reusedSavedExchange: !state.agentPrivateKey, builderApproved: true }))
-        toast.success(state.agentPrivateKey ? 'Hyperliquid account updated in NOFX' : 'Existing Hyperliquid account authorization updated')
+        setState((prev) => ({
+          ...prev,
+          agentPrivateKey: undefined,
+          savedExchangeId: existing.id,
+          reusedSavedExchange: !state.agentPrivateKey,
+          builderApproved: true,
+        }))
+        toast.success(
+          state.agentPrivateKey
+            ? 'Hyperliquid account updated in NOFX'
+            : 'Existing Hyperliquid account authorization updated'
+        )
+        await onSaved?.()
         return
       }
       if (!state.agentPrivateKey) {
-        throw new Error('Generate and authorize a new agent wallet before saving')
+        throw new Error(
+          'Generate and authorize a new agent wallet before saving'
+        )
       }
       const result = await api.createExchangeEncrypted({
         exchange_type: 'hyperliquid',
@@ -507,13 +848,24 @@ export function HyperliquidWalletConnect({ language, isLoggedIn, variant = 'drop
         enabled: true,
         api_key: state.agentPrivateKey,
         hyperliquid_wallet_addr: state.mainWallet,
+        hyperliquid_unified_account: true,
         hyperliquid_builder_approved: true,
         testnet: false,
       })
-      setState((prev) => ({ ...prev, agentPrivateKey: undefined, savedExchangeId: result.id, reusedSavedExchange: false }))
+      await onSaved?.()
+      setState((prev) => ({
+        ...prev,
+        agentPrivateKey: undefined,
+        savedExchangeId: result.id,
+        reusedSavedExchange: false,
+      }))
       toast.success('Hyperliquid account saved to NOFX')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save Hyperliquid account')
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to save Hyperliquid account'
+      )
     } finally {
       setBusy(false)
     }
@@ -526,7 +878,8 @@ export function HyperliquidWalletConnect({ language, isLoggedIn, variant = 'drop
       ...prev,
       agentApproved: prev.agentApproved || Boolean(prev.savedExchangeId),
       builderApproved: false,
-      reusedSavedExchange: Boolean(prev.savedExchangeId) || prev.reusedSavedExchange,
+      reusedSavedExchange:
+        Boolean(prev.savedExchangeId) || prev.reusedSavedExchange,
     }))
   }
 
@@ -546,26 +899,38 @@ export function HyperliquidWalletConnect({ language, isLoggedIn, variant = 'drop
           onClick={() => setOpen((value) => !value)}
           className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-bold transition-all border ${
             complete
-              ? 'bg-emerald-500/10 border-emerald-400/30 text-emerald-300'
+              ? 'bg-nofx-success/10 border-nofx-success/30 text-nofx-success'
               : 'bg-nofx-gold/10 border-nofx-gold/30 text-nofx-gold hover:bg-nofx-gold/20'
           }`}
         >
           <Wallet className="w-4 h-4" />
-          <span>{complete ? shortAddress(state.mainWallet) : text.connect}</span>
+          <span>
+            {complete ? shortAddress(state.mainWallet) : text.connect}
+          </span>
           <ChevronDown className="w-4 h-4" />
         </button>
       )}
 
       {(open || inline) && (
-        <div className={`${inline ? 'relative w-full' : 'absolute right-0 top-full mt-2 w-[420px] shadow-2xl shadow-black/50'} rounded-2xl border border-nofx-gold/20 bg-[#11151B] z-[80] overflow-hidden`}>
-          <div className="flex items-center justify-between p-4 border-b border-white/10">
+        <div
+          className={`${inline ? 'relative w-full' : 'absolute right-0 top-full mt-2 w-[420px] shadow-2xl shadow-black/10'} rounded-2xl border border-[rgba(26,24,19,0.14)] bg-nofx-bg-lighter z-[80] overflow-hidden`}
+        >
+          <div className="flex items-center justify-between p-4 border-b border-[rgba(26,24,19,0.14)]">
             <div>
-              <div className="font-bold text-white">{text.title}</div>
-              <div className="text-xs text-nofx-text-muted mt-1">{text.noCustody}</div>
-              <div className="text-[11px] text-nofx-gold/80 mt-1">{walletSupportLabel(language)}</div>
+              <div className="font-bold text-nofx-text">{text.title}</div>
+              <div className="text-xs text-nofx-text-muted mt-1">
+                {text.noCustody}
+              </div>
+              <div className="text-[11px] text-nofx-gold/80 mt-1">
+                {walletSupportLabel(language)}
+              </div>
             </div>
             {!inline && (
-              <button type="button" onClick={() => setOpen(false)} className="p-1 rounded hover:bg-white/10 text-zinc-500">
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="p-1 rounded hover:bg-[rgba(26,24,19,0.06)] text-nofx-text-muted"
+              >
                 <X className="w-4 h-4" />
               </button>
             )}
@@ -575,83 +940,214 @@ export function HyperliquidWalletConnect({ language, isLoggedIn, variant = 'drop
             <div className="space-y-2">
               {steps.map((step, index) => (
                 <div key={step.key} className="flex items-center gap-3 text-sm">
-                  <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
-                    step.status === 'done'
-                      ? 'bg-emerald-400 text-black'
-                      : step.status === 'active'
-                        ? 'bg-nofx-gold text-black'
-                        : 'bg-zinc-800 text-zinc-500'
-                  }`}
+                  <div
+                    className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                      step.status === 'done'
+                        ? 'bg-nofx-success text-white'
+                        : step.status === 'active'
+                          ? 'bg-nofx-gold text-white'
+                          : 'bg-nofx-bg-deeper text-nofx-text-muted'
+                    }`}
                   >
-                    {step.status === 'done' ? <Check className="w-3.5 h-3.5" /> : index + 1}
+                    {step.status === 'done' ? (
+                      <Check className="w-3.5 h-3.5" />
+                    ) : (
+                      index + 1
+                    )}
                   </div>
-                  <span className={step.status === 'pending' ? 'text-zinc-500' : 'text-zinc-200'}>{step.label}</span>
+                  <span
+                    className={
+                      step.status === 'pending'
+                        ? 'text-nofx-text-muted'
+                        : 'text-nofx-text'
+                    }
+                  >
+                    {step.label}
+                  </span>
                 </div>
               ))}
             </div>
 
             {error && (
-              <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-300">
+              <div className="rounded-lg border border-nofx-danger/30 bg-nofx-danger/10 p-3 text-xs text-nofx-danger">
                 {error}
               </div>
             )}
 
-            <div className="rounded-xl border border-white/10 bg-black/25 p-3 space-y-2 text-xs">
+            {!state.mainWallet && !hasWalletProvider && (
+              <div className="rounded-xl border border-nofx-gold/20 bg-nofx-gold/5 p-3">
+                <div className="text-sm font-semibold text-nofx-text">
+                  {text.noWalletTitle}
+                </div>
+                <p className="mt-1 text-xs leading-5 text-nofx-text-muted">
+                  {text.noWalletDetail}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <a
+                    href="https://rabby.io/"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-2 rounded-lg border border-[rgba(26,24,19,0.14)] bg-nofx-bg-deeper px-3 py-2 text-xs font-semibold text-nofx-text hover:border-[rgba(26,24,19,0.24)] hover:bg-nofx-bg"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    {text.installRabby}
+                  </a>
+                  <a
+                    href="https://metamask.io/download/"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-2 rounded-lg border border-[rgba(26,24,19,0.14)] bg-nofx-bg-deeper px-3 py-2 text-xs font-semibold text-nofx-text hover:border-[rgba(26,24,19,0.24)] hover:bg-nofx-bg"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    {text.installMetaMask}
+                  </a>
+                </div>
+              </div>
+            )}
+
+            <div className="rounded-xl border border-[rgba(26,24,19,0.14)] bg-nofx-bg-deeper p-3 space-y-2 text-xs">
               {state.mainWallet && (
                 <div className="flex items-center justify-between gap-3">
-                  <span className="text-zinc-500">Main</span>
-                  <button type="button" onClick={() => copy(state.mainWallet!, 'Main wallet')} className="font-mono text-zinc-200 hover:text-nofx-gold flex items-center gap-1">
-                    {shortAddress(state.mainWallet)} <Copy className="w-3 h-3" />
+                  <span className="text-nofx-text-muted">Main</span>
+                  <button
+                    type="button"
+                    onClick={() => copy(state.mainWallet!, 'Main wallet')}
+                    className="font-mono text-nofx-text hover:text-nofx-gold flex items-center gap-1"
+                  >
+                    {shortAddress(state.mainWallet)}{' '}
+                    <Copy className="w-3 h-3" />
                   </button>
                 </div>
               )}
               {state.agentAddress && (
                 <div className="flex items-center justify-between gap-3">
-                  <span className="text-zinc-500">Agent</span>
-                  <button type="button" onClick={() => copy(state.agentAddress!, 'Agent wallet')} className="font-mono text-zinc-200 hover:text-nofx-gold flex items-center gap-1">
-                    {shortAddress(state.agentAddress)} <Copy className="w-3 h-3" />
+                  <span className="text-nofx-text-muted">Agent</span>
+                  <button
+                    type="button"
+                    onClick={() => copy(state.agentAddress!, 'Agent wallet')}
+                    className="font-mono text-nofx-text hover:text-nofx-gold flex items-center gap-1"
+                  >
+                    {shortAddress(state.agentAddress)}{' '}
+                    <Copy className="w-3 h-3" />
                   </button>
                 </div>
               )}
               <div className="flex items-center justify-between gap-3">
-                <span className="text-zinc-500">Network</span>
-                <span className="font-mono text-zinc-300">Hyperliquid Mainnet</span>
+                <span className="text-nofx-text-muted">Network</span>
+                <span className="font-mono text-nofx-text">
+                  Hyperliquid Mainnet
+                </span>
               </div>
+              {state.mainWallet && (
+                <div className="flex items-center justify-between gap-3 border-t border-[rgba(26,24,19,0.14)] pt-2">
+                  <span className="text-nofx-text-muted">{text.agentExpiry}</span>
+                  {agentInfoLoading && !agentInfo ? (
+                    <span className="font-mono text-nofx-text-muted">Loading…</span>
+                  ) : agentInfo ? (
+                    (() => {
+                      const { dateStr, daysLeft } = formatAgentExpiry(
+                        agentInfo.validUntil,
+                        language
+                      )
+                      const expired = daysLeft < 0
+                      const soon = daysLeft >= 0 && daysLeft <= 14
+                      const tone = expired
+                        ? 'text-nofx-danger'
+                        : soon
+                          ? 'text-nofx-gold'
+                          : 'text-nofx-text'
+                      return (
+                        <span className={`font-mono text-right ${tone}`}>
+                          {dateStr}
+                          <span className="ml-1 opacity-80">
+                            ({expired ? text.agentExpired : `${daysLeft}d`})
+                          </span>
+                        </span>
+                      )
+                    })()
+                  ) : (
+                    <span className="font-mono text-nofx-text-muted">
+                      {text.agentNoAuth}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
+
+            {agentInfo && (
+              <div className="rounded-xl border border-nofx-gold/20 bg-nofx-gold/5 p-3 space-y-2 text-xs">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={renewAgentAuthorization}
+                  className="w-full flex items-center justify-center gap-2 rounded-xl border border-nofx-gold/30 bg-nofx-gold/10 px-4 py-2.5 text-sm font-bold text-nofx-gold transition hover:bg-nofx-gold/20 disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {busy ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="w-4 h-4" />
+                  )}
+                  {text.renewAgent}
+                </button>
+                <p className="text-[11px] leading-relaxed text-nofx-text-muted">
+                  {text.renewHint}
+                </p>
+              </div>
+            )}
 
             {state.mainWallet && (
               <div className="rounded-xl border border-nofx-gold/20 bg-nofx-gold/5 p-3 space-y-3 text-xs">
                 <div className="flex items-center justify-between gap-3">
-                  <span className="font-bold text-zinc-100">{text.balance}</span>
+                  <span className="font-bold text-nofx-text">
+                    {text.balance}
+                  </span>
                   <button
                     type="button"
                     onClick={() => void refreshBalance()}
                     disabled={balanceLoading}
-                    className="flex items-center gap-1 text-zinc-400 hover:text-nofx-gold disabled:opacity-60"
+                    className="flex items-center gap-1 text-nofx-text-muted hover:text-nofx-gold disabled:opacity-60"
                   >
-                    <RefreshCw className={`w-3 h-3 ${balanceLoading ? 'animate-spin' : ''}`} />
+                    <RefreshCw
+                      className={`w-3 h-3 ${balanceLoading ? 'animate-spin' : ''}`}
+                    />
                     {text.refresh}
                   </button>
                 </div>
                 {balanceError ? (
-                  <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-2 text-red-300">{balanceError}</div>
+                  <div className="rounded-lg border border-nofx-danger/30 bg-nofx-danger/10 p-2 text-nofx-danger">
+                    {balanceError}
+                  </div>
                 ) : (
                   <div className="grid grid-cols-2 gap-2">
-                    <div className="rounded-lg bg-black/25 p-2">
-                      <div className="text-zinc-500">{text.withdrawable}</div>
-                      <div className="mt-1 font-mono text-sm font-bold text-emerald-300">{balanceLoading && !account ? 'Loading…' : `${formatUSDC(account?.withdrawable)} USDC`}</div>
+                    <div className="rounded-lg bg-nofx-bg-deeper p-2">
+                      <div className="text-nofx-text-muted">{text.withdrawable}</div>
+                      <div className="mt-1 font-mono text-sm font-bold text-nofx-success">
+                        {balanceLoading && !account
+                          ? 'Loading…'
+                          : `${formatUSDC(account?.withdrawable)} USDC`}
+                      </div>
                     </div>
-                    <div className="rounded-lg bg-black/25 p-2">
-                      <div className="text-zinc-500">{text.equity}</div>
-                      <div className="mt-1 font-mono text-sm font-bold text-zinc-100">{balanceLoading && !account ? 'Loading…' : `${formatUSDC(account?.accountValue)} USDC`}</div>
+                    <div className="rounded-lg bg-nofx-bg-deeper p-2">
+                      <div className="text-nofx-text-muted">{text.equity}</div>
+                      <div className="mt-1 font-mono text-sm font-bold text-nofx-text">
+                        {balanceLoading && !account
+                          ? 'Loading…'
+                          : `${formatUSDC(account?.accountValue)} USDC`}
+                      </div>
                     </div>
-                    <div className="rounded-lg bg-black/25 p-2">
-                      <div className="text-zinc-500">{text.marginUsed}</div>
-                      <div className="mt-1 font-mono text-sm font-bold text-zinc-100">{formatUSDC(account?.totalMarginUsed)} USDC</div>
+                    <div className="rounded-lg bg-nofx-bg-deeper p-2">
+                      <div className="text-nofx-text-muted">{text.marginUsed}</div>
+                      <div className="mt-1 font-mono text-sm font-bold text-nofx-text">
+                        {formatUSDC(account?.totalMarginUsed)} USDC
+                      </div>
                     </div>
-                    <div className="rounded-lg bg-black/25 p-2">
-                      <div className="text-zinc-500">{text.unrealizedPnl}</div>
-                      <div className={`mt-1 font-mono text-sm font-bold ${(account?.unrealizedPnl ?? 0) >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>{formatSignedUSDC(account?.unrealizedPnl)} USDC</div>
+                    <div className="rounded-lg bg-nofx-bg-deeper p-2">
+                      <div className="text-nofx-text-muted">{text.unrealizedPnl}</div>
+                      <div
+                        className={`mt-1 font-mono text-sm font-bold ${(account?.unrealizedPnl ?? 0) >= 0 ? 'text-nofx-success' : 'text-nofx-danger'}`}
+                      >
+                        {formatSignedUSDC(account?.unrealizedPnl)} USDC
+                      </div>
                     </div>
                   </div>
                 )}
@@ -659,14 +1155,44 @@ export function HyperliquidWalletConnect({ language, isLoggedIn, variant = 'drop
             )}
 
             <div className="grid grid-cols-1 gap-2">
-              {!state.mainWallet && <ActionButton busy={busy} onClick={connectWallet} label={text.connect} />}
-              {state.mainWallet && !agentReady && <ActionButton busy={busy} onClick={generateAgentWallet} label={text.generateAgent} />}
-              {agentReady && !agentApprovedReady && <ActionButton busy={busy} onClick={approveAgent} label={text.approveAgent} />}
-              {agentApprovedReady && !builderReady && <ActionButton busy={busy} onClick={approveBuilderFee} label={text.approveBuilder} />}
-              {builderReady && !state.savedExchangeId && <ActionButton busy={busy} onClick={saveExchange} label={text.save} />}
+              {!state.mainWallet && (
+                <ActionButton
+                  busy={busy}
+                  onClick={connectWallet}
+                  label={text.connect}
+                />
+              )}
+              {state.mainWallet && !agentReady && (
+                <ActionButton
+                  busy={busy}
+                  onClick={generateAgentWallet}
+                  label={text.generateAgent}
+                />
+              )}
+              {agentReady && !agentApprovedReady && (
+                <ActionButton
+                  busy={busy}
+                  onClick={approveAgent}
+                  label={text.approveAgent}
+                />
+              )}
+              {agentApprovedReady && !builderReady && (
+                <ActionButton
+                  busy={busy}
+                  onClick={approveBuilderFee}
+                  label={text.approveBuilder}
+                />
+              )}
+              {builderReady && !state.savedExchangeId && (
+                <ActionButton
+                  busy={busy}
+                  onClick={saveExchange}
+                  label={text.save}
+                />
+              )}
               {complete && (
                 <>
-                  <div className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 p-3 text-sm text-emerald-200 flex items-center gap-2">
+                  <div className="rounded-lg border border-nofx-success/30 bg-nofx-success/10 p-3 text-sm text-nofx-success flex items-center gap-2">
                     <Shield className="w-4 h-4" /> {text.done}
                   </div>
                   <button
@@ -674,17 +1200,28 @@ export function HyperliquidWalletConnect({ language, isLoggedIn, variant = 'drop
                     onClick={resetTradingAuthorization}
                     className="w-full flex items-center justify-center gap-2 rounded-xl border border-nofx-gold/30 bg-nofx-gold/10 px-4 py-3 text-sm font-bold text-nofx-gold transition hover:bg-nofx-gold/20"
                   >
-                    {language === 'zh' ? '重新授权交易' : 'Re-authorize trading'}
+                    {language === 'zh'
+                      ? 'Re-authorize trading'
+                      : 'Re-authorize trading'}
                   </button>
                 </>
               )}
             </div>
 
-            <div className="flex items-center justify-between pt-2 border-t border-white/10">
-              <a href="https://app.hyperliquid.xyz/" target="_blank" rel="noopener noreferrer" className="text-xs text-zinc-500 hover:text-nofx-gold flex items-center gap-1">
+            <div className="flex items-center justify-between pt-2 border-t border-[rgba(26,24,19,0.14)]">
+              <a
+                href="https://app.hyperliquid.xyz/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-nofx-text-muted hover:text-nofx-gold flex items-center gap-1"
+              >
                 Open Hyperliquid <ExternalLink className="w-3 h-3" />
               </a>
-              <button type="button" onClick={resetFlow} className="text-xs text-zinc-500 hover:text-red-300">
+              <button
+                type="button"
+                onClick={resetFlow}
+                className="text-xs text-nofx-text-muted hover:text-nofx-danger"
+              >
                 Reset
               </button>
             </div>
@@ -695,13 +1232,21 @@ export function HyperliquidWalletConnect({ language, isLoggedIn, variant = 'drop
   )
 }
 
-function ActionButton({ busy, onClick, label }: { busy: boolean; onClick: () => void; label: string }) {
+function ActionButton({
+  busy,
+  onClick,
+  label,
+}: {
+  busy: boolean
+  onClick: () => void
+  label: string
+}) {
   return (
     <button
       type="button"
       disabled={busy}
       onClick={onClick}
-      className="w-full flex items-center justify-center gap-2 rounded-xl bg-nofx-gold px-4 py-3 text-sm font-bold text-black transition hover:bg-yellow-400 disabled:opacity-60 disabled:cursor-not-allowed"
+      className="w-full flex items-center justify-center gap-2 rounded-xl bg-nofx-gold px-4 py-3 text-sm font-bold text-white transition hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed"
     >
       {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
       {label}

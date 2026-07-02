@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import useSWR from 'swr'
 import { api } from '../../lib/api'
 import type {
@@ -19,11 +19,8 @@ import { TelegramConfigModal } from './TelegramConfigModal'
 import { ModelConfigModal } from './ModelConfigModal'
 import { ConfigStatusGrid } from './ConfigStatusGrid'
 import { TradersList } from './TradersList'
-import {
-  Bot,
-  Plus,
-  MessageCircle,
-} from 'lucide-react'
+import { AutopilotLaunchPanel } from './AutopilotLaunchPanel'
+import { Bot, Plus, MessageCircle } from 'lucide-react'
 import { confirmToast } from '../../lib/notify'
 import { toast } from 'sonner'
 
@@ -35,6 +32,7 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
   const { language } = useLanguage()
   const { user, token } = useAuth()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
   const [showModelModal, setShowModelModal] = useState(false)
@@ -42,14 +40,25 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
   const [showTelegramModal, setShowTelegramModal] = useState(false)
   const [editingModel, setEditingModel] = useState<string | null>(null)
   const [editingExchange, setEditingExchange] = useState<string | null>(null)
+  const [initialModelId, setInitialModelId] = useState<string | null>(null)
+  const [initialExchangeType, setInitialExchangeType] = useState<string | null>(
+    null
+  )
   const [editingTrader, setEditingTrader] = useState<any>(null)
   const [allModels, setAllModels] = useState<AIModel[]>([])
   const [allExchanges, setAllExchanges] = useState<Exchange[]>([])
-  const [exchangeAccountStates, setExchangeAccountStates] = useState<Record<string, ExchangeAccountState>>({})
-  const [isExchangeAccountStatesLoading, setIsExchangeAccountStatesLoading] = useState(false)
+  const [exchangeAccountStates, setExchangeAccountStates] = useState<
+    Record<string, ExchangeAccountState>
+  >({})
+  const [isExchangeAccountStatesLoading, setIsExchangeAccountStatesLoading] =
+    useState(false)
   const [supportedModels, setSupportedModels] = useState<AIModel[]>([])
-  const [visibleTraderAddresses, setVisibleTraderAddresses] = useState<Set<string>>(new Set())
-  const [visibleExchangeAddresses, setVisibleExchangeAddresses] = useState<Set<string>>(new Set())
+  const [visibleTraderAddresses, setVisibleTraderAddresses] = useState<
+    Set<string>
+  >(new Set())
+  const [visibleExchangeAddresses, setVisibleExchangeAddresses] = useState<
+    Set<string>
+  >(new Set())
   const [copiedId, setCopiedId] = useState<string | null>(null)
 
   const loadConfigs = async () => {
@@ -61,17 +70,13 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
 
     setIsExchangeAccountStatesLoading(true)
     try {
-      const [
-        modelConfigs,
-        exchangeConfigs,
-        models,
-        accountStateResponse,
-      ] = await Promise.all([
-        api.getModelConfigs(),
-        api.getExchangeConfigs(),
-        api.getSupportedModels(),
-        api.getExchangeAccountState().catch(() => ({ states: {} })),
-      ])
+      const [modelConfigs, exchangeConfigs, models, accountStateResponse] =
+        await Promise.all([
+          api.getModelConfigs(),
+          api.getExchangeConfigs(),
+          api.getSupportedModels(),
+          api.getExchangeAccountState().catch(() => ({ states: {} })),
+        ])
       setAllModels(modelConfigs)
       setAllExchanges(exchangeConfigs)
       setExchangeAccountStates(accountStateResponse.states || {})
@@ -83,7 +88,7 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
 
   // Toggle wallet address visibility for a trader
   const toggleTraderAddressVisibility = (traderId: string) => {
-    setVisibleTraderAddresses(prev => {
+    setVisibleTraderAddresses((prev) => {
       const next = new Set(prev)
       if (next.has(traderId)) {
         next.delete(traderId)
@@ -96,7 +101,7 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
 
   // Toggle wallet address visibility for an exchange
   const toggleExchangeAddressVisibility = (exchangeId: string) => {
-    setVisibleExchangeAddresses(prev => {
+    setVisibleExchangeAddresses((prev) => {
       const next = new Set(prev)
       if (next.has(exchangeId)) {
         next.delete(exchangeId)
@@ -106,7 +111,6 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
       return next
     })
   }
-
 
   // Copy wallet address to clipboard
   const handleCopyAddress = async (id: string, address: string) => {
@@ -119,27 +123,18 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
     }
   }
 
-  const { data: traders, mutate: mutateTraders, isLoading: isTradersLoading } = useSWR<TraderInfo[]>(
-    user && token ? 'traders' : null,
-    api.getTraders,
-    { refreshInterval: 5000 }
-  )
+  const {
+    data: traders,
+    mutate: mutateTraders,
+    isLoading: isTradersLoading,
+  } = useSWR<TraderInfo[]>(user && token ? 'traders' : null, api.getTraders, {
+    refreshInterval: 5000,
+  })
 
   useEffect(() => {
-    loadConfigs()
-      .catch((error) => {
-        console.error('Failed to load configs:', error)
-      })
-  }, [user, token])
-
-  useEffect(() => {
-    const handleRefresh = () => {
-      loadConfigs().catch((error) => {
-        console.error('Failed to refresh configs:', error)
-      })
-    }
-    window.addEventListener('agent-config-refresh', handleRefresh)
-    return () => window.removeEventListener('agent-config-refresh', handleRefresh)
+    loadConfigs().catch((error) => {
+      console.error('Failed to load configs:', error)
+    })
   }, [user, token])
 
   const configuredModels =
@@ -176,10 +171,6 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
       return true
     }) || []
 
-  const isModelInUse = (modelId: string) => {
-    return traders?.some((tr) => tr.ai_model === modelId && tr.is_running)
-  }
-
   const getModelUsageInfo = (modelId: string) => {
     const usingTraders = traders?.filter((tr) => tr.ai_model === modelId) || []
     const runningCount = usingTraders.filter((tr) => tr.is_running).length
@@ -187,12 +178,9 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
     return { runningCount, totalCount, usingTraders }
   }
 
-  const isExchangeInUse = (exchangeId: string) => {
-    return traders?.some((tr) => tr.exchange_id === exchangeId && tr.is_running)
-  }
-
   const getExchangeUsageInfo = (exchangeId: string) => {
-    const usingTraders = traders?.filter((tr) => tr.exchange_id === exchangeId) || []
+    const usingTraders =
+      traders?.filter((tr) => tr.exchange_id === exchangeId) || []
     const runningCount = usingTraders.filter((tr) => tr.is_running).length
     const totalCount = usingTraders.length
     return { runningCount, totalCount, usingTraders }
@@ -309,10 +297,10 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
     try {
       if (running) {
         await api.stopTrader(traderId)
-      toast.success(t('aiTradersToast.stopped', language))
+        toast.success(t('aiTradersToast.stopped', language))
       } else {
         await api.startTrader(traderId)
-      toast.success(t('aiTradersToast.started', language))
+        toast.success(t('aiTradersToast.started', language))
       }
 
       await mutateTraders()
@@ -322,11 +310,18 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
     }
   }
 
-  const handleToggleCompetition = async (traderId: string, currentShowInCompetition: boolean) => {
+  const handleToggleCompetition = async (
+    traderId: string,
+    currentShowInCompetition: boolean
+  ) => {
     try {
       const newValue = !currentShowInCompetition
       await api.toggleCompetition(traderId, newValue)
-      toast.success(newValue ? t('aiTradersToast.showInCompetition', language) : t('aiTradersToast.hideInCompetition', language))
+      toast.success(
+        newValue
+          ? t('aiTradersToast.showInCompetition', language)
+          : t('aiTradersToast.hideInCompetition', language)
+      )
 
       await mutateTraders()
     } catch (error) {
@@ -336,17 +331,15 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
   }
 
   const handleModelClick = (modelId: string) => {
-    if (!isModelInUse(modelId)) {
-      setEditingModel(modelId)
-      setShowModelModal(true)
-    }
+    setInitialModelId(null)
+    setEditingModel(modelId)
+    setShowModelModal(true)
   }
 
   const handleExchangeClick = (exchangeId: string) => {
-    if (!isExchangeInUse(exchangeId)) {
-      setEditingExchange(exchangeId)
-      setShowExchangeModal(true)
-    }
+    setInitialExchangeType(null)
+    setEditingExchange(exchangeId)
+    setShowExchangeModal(true)
   }
 
   const handleDeleteConfig = async <T extends { id: string }>(config: {
@@ -463,12 +456,12 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
           allModels?.map((m) =>
             m.id === modelId
               ? {
-                ...m,
-                apiKey,
-                customApiUrl: customApiUrl || '',
-                customModelName: customModelName || '',
-                enabled: true,
-              }
+                  ...m,
+                  apiKey,
+                  customApiUrl: customApiUrl || '',
+                  customModelName: customModelName || '',
+                  enabled: true,
+                }
               : m
           ) || []
       } else {
@@ -571,6 +564,7 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
               passphrase: passphrase || '',
               testnet: testnet || false,
               hyperliquid_wallet_addr: hyperliquidWalletAddr || '',
+              hyperliquid_unified_account: exchangeType === 'hyperliquid',
               aster_user: asterUser || '',
               aster_signer: asterSigner || '',
               aster_private_key: asterPrivateKey || '',
@@ -583,7 +577,7 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
         }
 
         await api.updateExchangeConfigsEncrypted(request)
-      toast.success(t('aiTradersToast.exchangeConfigUpdated', language))
+        toast.success(t('aiTradersToast.exchangeConfigUpdated', language))
       } else {
         const createRequest = {
           exchange_type: exchangeType,
@@ -594,6 +588,7 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
           passphrase: passphrase || '',
           testnet: testnet || false,
           hyperliquid_wallet_addr: hyperliquidWalletAddr || '',
+          hyperliquid_unified_account: exchangeType === 'hyperliquid',
           aster_user: asterUser || '',
           aster_signer: asterSigner || '',
           aster_private_key: asterPrivateKey || '',
@@ -604,7 +599,7 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
         }
 
         await api.createExchangeEncrypted(createRequest)
-      toast.success(t('aiTradersToast.exchangeCreated', language))
+        toast.success(t('aiTradersToast.exchangeCreated', language))
       }
 
       const refreshedExchanges = await api.getExchangeConfigs()
@@ -619,36 +614,88 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
   }
 
   const handleAddModel = () => {
+    setInitialModelId(null)
     setEditingModel(null)
     setShowModelModal(true)
   }
 
   const handleAddExchange = () => {
+    setInitialExchangeType(null)
     setEditingExchange(null)
     setShowExchangeModal(true)
+  }
+
+  const handleOpenClaw402Config = () => {
+    const configuredClaw402 = allModels?.find(
+      (model) => model.provider === 'claw402'
+    )
+    const supportedClaw402 = supportedModels?.find(
+      (model) => model.provider === 'claw402'
+    )
+    const modelId = configuredClaw402?.id || supportedClaw402?.id || 'claw402'
+
+    setEditingModel(configuredClaw402?.id || null)
+    setInitialModelId(modelId)
+    setShowModelModal(true)
+  }
+
+  const handleOpenHyperliquidConfig = () => {
+    const existingHyperliquid = allExchanges?.find(
+      (exchange) =>
+        exchange.exchange_type === 'hyperliquid' ||
+        exchange.id === 'hyperliquid'
+    )
+
+    setEditingExchange(existingHyperliquid?.id || null)
+    setInitialExchangeType(existingHyperliquid ? null : 'hyperliquid')
+    setShowExchangeModal(true)
+  }
+
+  useEffect(() => {
+    if (!user || !token) return
+
+    const setupTarget = searchParams.get('setup')
+    if (!setupTarget) return
+
+    if (setupTarget === 'claw402') {
+      if (supportedModels.length === 0 && allModels.length === 0) return
+      handleOpenClaw402Config()
+    } else if (setupTarget === 'hyperliquid') {
+      handleOpenHyperliquidConfig()
+    } else {
+      return
+    }
+
+    const nextParams = new URLSearchParams(searchParams)
+    nextParams.delete('setup')
+    setSearchParams(nextParams, { replace: true })
+  }, [allExchanges, allModels, searchParams, setSearchParams, supportedModels, token, user])
+
+  const refreshLaunchState = async () => {
+    await Promise.all([loadConfigs(), mutateTraders()])
   }
 
   return (
     <DeepVoidBackground className="py-8" disableAnimation>
       <div className="w-full px-4 md:px-8 space-y-8 animate-fade-in">
         {/* Header - Terminal Style */}
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-white/10 pb-6">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-nofx-gold/20 pb-6">
           <div className="flex items-center gap-4">
             <div className="relative group">
-              <div className="absolute -inset-1 bg-nofx-gold/20 rounded-xl blur opacity-0 group-hover:opacity-100 transition duration-500"></div>
-              <div className="w-12 h-12 md:w-14 md:h-14 rounded-xl flex items-center justify-center bg-black border border-nofx-gold/30 text-nofx-gold relative z-10 shadow-[0_0_15px_rgba(240,185,11,0.1)]">
+              <div className="absolute -inset-1 bg-transparent rounded-xl opacity-0 group-hover:opacity-100 transition duration-500"></div>
+              <div className="w-12 h-12 md:w-14 md:h-14 rounded-xl flex items-center justify-center bg-nofx-bg-lighter border border-nofx-gold/30 text-nofx-gold relative z-10">
                 <Bot className="w-6 h-6 md:w-7 md:h-7" />
               </div>
             </div>
             <div>
-              <h1 className="text-2xl md:text-3xl font-bold font-mono tracking-tight text-white flex items-center gap-3 uppercase">
+              <h1 className="text-2xl md:text-3xl font-bold font-mono tracking-tight text-nofx-text flex items-center gap-3 uppercase">
                 {t('aiTraders', language)}
                 <span className="text-xs font-mono font-normal px-2 py-0.5 rounded bg-nofx-gold/10 text-nofx-gold border border-nofx-gold/20 tracking-wider">
                   {traders?.length || 0} ACTIVE_NODES
                 </span>
               </h1>
-              <p className="text-xs font-mono text-zinc-500 uppercase tracking-widest mt-1 ml-1 flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+              <p className="text-xs font-mono text-nofx-text-muted uppercase tracking-widest mt-1 ml-1 flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-nofx-success animate-pulse"></span>
                 SYSTEM_READY
               </p>
             </div>
@@ -657,7 +704,7 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
           <div className="flex gap-2 w-full md:w-auto overflow-x-auto pb-1 md:pb-0 hide-scrollbar">
             <button
               onClick={handleAddModel}
-              className="px-4 py-2 rounded text-xs font-mono uppercase tracking-wider transition-all border border-zinc-700 bg-black/20 text-zinc-400 hover:text-white hover:border-zinc-500 whitespace-nowrap backdrop-blur-sm"
+              className="px-4 py-2 rounded text-xs font-mono uppercase tracking-wider transition-all border border-nofx-gold/20 bg-nofx-bg-lighter text-nofx-text-muted hover:text-nofx-text hover:border-nofx-gold/40 whitespace-nowrap"
             >
               <div className="flex items-center gap-2">
                 <Plus className="w-3 h-3" />
@@ -667,7 +714,7 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
 
             <button
               onClick={handleAddExchange}
-              className="px-4 py-2 rounded text-xs font-mono uppercase tracking-wider transition-all border border-zinc-700 bg-black/20 text-zinc-400 hover:text-white hover:border-zinc-500 whitespace-nowrap backdrop-blur-sm"
+              className="px-4 py-2 rounded text-xs font-mono uppercase tracking-wider transition-all border border-nofx-gold/20 bg-nofx-bg-lighter text-nofx-text-muted hover:text-nofx-text hover:border-nofx-gold/40 whitespace-nowrap"
             >
               <div className="flex items-center gap-2">
                 <Plus className="w-3 h-3" />
@@ -677,7 +724,7 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
 
             <button
               onClick={() => setShowTelegramModal(true)}
-              className="px-4 py-2 rounded text-xs font-mono uppercase tracking-wider transition-all border border-sky-900/50 bg-black/20 text-sky-500 hover:text-sky-300 hover:border-sky-700 whitespace-nowrap backdrop-blur-sm"
+              className="px-4 py-2 rounded text-xs font-mono uppercase tracking-wider transition-all border border-nofx-accent/30 bg-nofx-bg-lighter text-nofx-accent hover:text-nofx-gold hover:border-nofx-accent/50 whitespace-nowrap"
             >
               <div className="flex items-center gap-2">
                 <MessageCircle className="w-3 h-3" />
@@ -687,8 +734,11 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
 
             <button
               onClick={() => setShowCreateModal(true)}
-              disabled={configuredModels.length === 0 || configuredExchanges.length === 0}
-              className="group relative px-6 py-2 rounded text-xs font-bold font-mono uppercase tracking-wider transition-all disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap overflow-hidden bg-nofx-gold text-black hover:bg-yellow-400 shadow-[0_0_20px_rgba(240,185,11,0.2)] hover:shadow-[0_0_30px_rgba(240,185,11,0.4)]"
+              disabled={
+                configuredModels.length === 0 ||
+                configuredExchanges.length === 0
+              }
+              className="group relative px-6 py-2 rounded text-xs font-bold font-mono uppercase tracking-wider transition-all disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap overflow-hidden bg-nofx-gold text-white hover:bg-nofx-accent"
             >
               <span className="relative z-10 flex items-center gap-2">
                 <Plus className="w-4 h-4" />
@@ -708,14 +758,24 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
           visibleExchangeAddresses={visibleExchangeAddresses}
           copiedId={copiedId}
           language={language}
-          isModelInUse={isModelInUse}
           getModelUsageInfo={getModelUsageInfo}
-          isExchangeInUse={isExchangeInUse}
           getExchangeUsageInfo={getExchangeUsageInfo}
           onModelClick={handleModelClick}
           onExchangeClick={handleExchangeClick}
           onToggleExchangeAddress={toggleExchangeAddressVisibility}
           onCopyAddress={handleCopyAddress}
+        />
+
+        <AutopilotLaunchPanel
+          models={allModels}
+          exchanges={allExchanges}
+          exchangeAccountStates={exchangeAccountStates}
+          traders={traders || []}
+          isLoggedIn={Boolean(user && token)}
+          language={language}
+          onRefresh={refreshLaunchState}
+          onOpenClaw402Config={handleOpenClaw402Config}
+          onOpenHyperliquidConfig={handleOpenHyperliquidConfig}
         />
 
         {/* Traders List */}
@@ -772,11 +832,13 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
             allModels={supportedModels}
             configuredModels={allModels}
             editingModelId={editingModel}
+            initialModelId={initialModelId}
             onSave={handleSaveModelConfig}
             onDelete={handleDeleteModelConfig}
             onClose={() => {
               setShowModelModal(false)
               setEditingModel(null)
+              setInitialModelId(null)
             }}
             language={language}
           />
@@ -787,11 +849,13 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
           <ExchangeConfigModal
             allExchanges={allExchanges}
             editingExchangeId={editingExchange}
+            initialExchangeType={initialExchangeType}
             onSave={handleSaveExchangeConfig}
             onDelete={handleDeleteExchangeConfig}
             onClose={() => {
               setShowExchangeModal(false)
               setEditingExchange(null)
+              setInitialExchangeType(null)
             }}
             language={language}
           />

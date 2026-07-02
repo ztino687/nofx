@@ -12,17 +12,17 @@ export interface AIModel {
 }
 
 export interface TelegramConfig {
-  token_masked: string    // Masked token like "123456:ABC***XYZ"
-  is_bound: boolean       // Whether a user has sent /start
-  bound_chat_id?: number  // The bound chat ID (if any)
-  model_id?: string       // AI model selected for Telegram replies
+  token_masked: string // Masked token like "123456:ABC***XYZ"
+  is_bound: boolean // Whether a user has sent /start
+  bound_chat_id?: number // The bound chat ID (if any)
+  model_id?: string // AI model selected for Telegram replies
 }
 
 export interface Exchange {
-  id: string                     // UUID (empty for supported exchange templates)
-  exchange_type: string          // "binance", "bybit", "okx", "hyperliquid", "aster", "lighter"
-  account_name: string           // User-defined account name
-  name: string                   // Display name
+  id: string // UUID (empty for supported exchange templates)
+  exchange_type: string // "binance", "bybit", "okx", "hyperliquid", "aster", "lighter"
+  account_name: string // User-defined account name
+  name: string // Display name
   type: 'cex' | 'dex'
   enabled: boolean
   has_api_key?: boolean
@@ -30,10 +30,11 @@ export interface Exchange {
   has_passphrase?: boolean
   apiKey?: string
   secretKey?: string
-  passphrase?: string            // OKX specific
+  passphrase?: string // OKX specific
   testnet?: boolean
   // Hyperliquid specific
   hyperliquidWalletAddr?: string
+  hyperliquidUnifiedAccount?: boolean
   hyperliquidBuilderApproved?: boolean
   has_hyperliquid_secret?: boolean
   // Aster specific
@@ -75,14 +76,15 @@ export interface ExchangeAccountStateResponse {
 }
 
 export interface CreateExchangeRequest {
-  exchange_type: string          // "binance", "bybit", "okx", "hyperliquid", "aster", "lighter"
-  account_name: string           // User-defined account name
+  exchange_type: string // "binance", "bybit", "okx", "hyperliquid", "aster", "lighter"
+  account_name: string // User-defined account name
   enabled: boolean
   api_key?: string
   secret_key?: string
   passphrase?: string
   testnet?: boolean
   hyperliquid_wallet_addr?: string
+  hyperliquid_unified_account?: boolean
   hyperliquid_builder_approved?: boolean
   aster_user?: string
   aster_signer?: string
@@ -97,11 +99,11 @@ export interface CreateTraderRequest {
   name: string
   ai_model_id: string
   exchange_id: string
-  strategy_id?: string // 策略ID（新版，使用保存的策略配置）
+  strategy_id?: string // Strategy ID (new version, uses saved strategy config)
   scan_interval_minutes?: number
   is_cross_margin?: boolean
-  show_in_competition?: boolean // 是否在竞技场显示
-  // 以下字段为向后兼容保留，新版使用策略配置
+  show_in_competition?: boolean // Whether to show in the competition arena
+  // Fields below are kept for backward compatibility; new version uses strategy config
   btc_eth_leverage?: number
   altcoin_leverage?: number
   trading_symbols?: string
@@ -131,14 +133,15 @@ export interface UpdateExchangeConfigRequest {
       secret_key: string
       passphrase?: string
       testnet?: boolean
-      // Hyperliquid 特定字段
+      // Hyperliquid specific fields
       hyperliquid_wallet_addr?: string
+      hyperliquid_unified_account?: boolean
       hyperliquid_builder_approved?: boolean
-      // Aster 特定字段
+      // Aster specific fields
       aster_user?: string
       aster_signer?: string
       aster_private_key?: string
-      // LIGHTER 特定字段
+      // LIGHTER specific fields
       lighter_wallet_addr?: string
       lighter_private_key?: string
       lighter_api_key_private_key?: string

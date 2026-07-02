@@ -13,7 +13,7 @@ import (
 // Hard limits to prevent token explosion in AI requests
 const (
 	MaxCandidateCoins = 10
-	MaxPositions      = 3
+	MaxPositions      = 8
 	MaxTimeframes     = 4
 	MinKlineCount     = 10
 	MaxKlineCount     = 30
@@ -45,6 +45,9 @@ func (c *StrategyConfig) ClampLimits() {
 	}
 	if c.CoinSource.OILowLimit > MaxCandidateCoins {
 		c.CoinSource.OILowLimit = MaxCandidateCoins
+	}
+	if c.CoinSource.VergexLimit > MaxCandidateCoins {
+		c.CoinSource.VergexLimit = MaxCandidateCoins
 	}
 
 	// Clamp static coins
@@ -136,6 +139,8 @@ func (c *StrategyConfig) ClampLimits() {
 // must use the exact frontend/backend enum values.
 func (c *StrategyConfig) NormalizeProductSchema() {
 	c.StrategyType = normalizeStrategyType(c.StrategyType)
+	c.CoinSource.StaticCoins = normalizeSymbols(c.CoinSource.StaticCoins)
+	c.CoinSource.ExcludedCoins = normalizeSymbols(c.CoinSource.ExcludedCoins)
 	c.CoinSource.SourceType = normalizeCoinSourceType(c.CoinSource.SourceType)
 	if c.CoinSource.SourceType == "" {
 		c.CoinSource.SourceType = inferCoinSourceType(c.CoinSource)
@@ -205,26 +210,53 @@ func (c *StrategyConfig) NormalizeProductSchema() {
 		if c.CoinSource.HyperRankLimit <= 0 {
 			c.CoinSource.HyperRankLimit = 5
 		}
-	default:
-		c.CoinSource.SourceType = "hyper_rank"
+	case "vergex_signal":
 		c.CoinSource.UseAI500 = false
 		c.CoinSource.UseOITop = false
 		c.CoinSource.UseOILow = false
 		c.CoinSource.UseHyperAll = false
 		c.CoinSource.UseHyperMain = false
-		if c.CoinSource.HyperRankCategory == "" {
-			c.CoinSource.HyperRankCategory = "stock"
+		minLimit := 10
+		if len(c.CoinSource.StaticCoins) > 0 {
+			minLimit = len(c.CoinSource.StaticCoins)
+			if minLimit > MaxCandidateCoins {
+				minLimit = MaxCandidateCoins
+			}
 		}
-		if c.CoinSource.HyperRankDirection == "" {
-			c.CoinSource.HyperRankDirection = "gainers"
+		if c.CoinSource.VergexLimit < minLimit {
+			c.CoinSource.VergexLimit = minLimit
 		}
-		if c.CoinSource.HyperRankLimit <= 0 {
-			c.CoinSource.HyperRankLimit = 5
+		if c.CoinSource.VergexMarketType == "" {
+			c.CoinSource.VergexMarketType = "all"
+		}
+		if c.CoinSource.VergexChain == "" {
+			c.CoinSource.VergexChain = "hyperliquid"
+		}
+	default:
+		c.CoinSource.SourceType = "vergex_signal"
+		c.CoinSource.UseAI500 = false
+		c.CoinSource.UseOITop = false
+		c.CoinSource.UseOILow = false
+		c.CoinSource.UseHyperAll = false
+		c.CoinSource.UseHyperMain = false
+		minLimit := 10
+		if len(c.CoinSource.StaticCoins) > 0 {
+			minLimit = len(c.CoinSource.StaticCoins)
+			if minLimit > MaxCandidateCoins {
+				minLimit = MaxCandidateCoins
+			}
+		}
+		if c.CoinSource.VergexLimit < minLimit {
+			c.CoinSource.VergexLimit = minLimit
+		}
+		if c.CoinSource.VergexMarketType == "" {
+			c.CoinSource.VergexMarketType = "all"
+		}
+		if c.CoinSource.VergexChain == "" {
+			c.CoinSource.VergexChain = "hyperliquid"
 		}
 	}
 
-	c.CoinSource.StaticCoins = normalizeSymbols(c.CoinSource.StaticCoins)
-	c.CoinSource.ExcludedCoins = normalizeSymbols(c.CoinSource.ExcludedCoins)
 	c.Indicators.Klines.PrimaryTimeframe = normalizeTimeframe(c.Indicators.Klines.PrimaryTimeframe)
 	c.Indicators.Klines.LongerTimeframe = normalizeTimeframe(c.Indicators.Klines.LongerTimeframe)
 	c.Indicators.Klines.SelectedTimeframes = normalizeTimeframes(c.Indicators.Klines.SelectedTimeframes)
@@ -236,9 +268,9 @@ func (c *StrategyConfig) NormalizeProductSchema() {
 func normalizeStrategyType(value string) string {
 	value = strings.ToLower(strings.TrimSpace(value))
 	switch value {
-	case "grid", "grid_strategy", "grid-trading", "grid trading", "grid_trading", "网格", "网格策略", "网格交易":
+	case "grid", "grid_strategy", "grid-trading", "grid trading", "grid_trading", "grid strategy":
 		return "grid_trading"
-	case "", "ai", "ai_strategy", "ai-trading", "ai trading", "ai_trading", "ai策略", "ai 策略", "ai交易策略", "ai智能策略":
+	case "", "ai", "ai_strategy", "ai-trading", "ai trading", "ai_trading", "ai strategy", "ai smart strategy":
 		return "ai_trading"
 	default:
 		return value
@@ -247,23 +279,25 @@ func normalizeStrategyType(value string) string {
 
 func normalizeCoinSourceType(value string) string {
 	value = strings.ToLower(strings.TrimSpace(value))
-	compact := strings.NewReplacer(" ", "", "_", "", "-", "", "数据源", "", "选币", "", "币种", "").Replace(value)
+	compact := strings.NewReplacer(" ", "", "_", "", "-", "", "datasource", "", "coinselection", "", "coin", "").Replace(value)
 	switch {
 	case compact == "":
 		return ""
 	case strings.Contains(compact, "ai500"):
 		return "ai500"
-	case strings.Contains(compact, "oitop") || strings.Contains(value, "oi top") || strings.Contains(value, "持仓量最高") || strings.Contains(value, "持仓量靠前"):
+	case strings.Contains(compact, "oitop") || strings.Contains(value, "oi top") || strings.Contains(value, "highest open interest") || strings.Contains(value, "top open interest"):
 		return "oi_top"
-	case strings.Contains(compact, "oilow") || strings.Contains(value, "oi low") || strings.Contains(value, "持仓量最低") || strings.Contains(value, "持仓量较低"):
+	case strings.Contains(compact, "oilow") || strings.Contains(value, "oi low") || strings.Contains(value, "lowest open interest") || strings.Contains(value, "low open interest"):
 		return "oi_low"
-	case strings.Contains(compact, "hyperrank") || strings.Contains(compact, "dynamicranking") || strings.Contains(value, "动态榜单") || strings.Contains(value, "涨幅榜"):
+	case strings.Contains(compact, "hyperrank"):
 		return "hyper_rank"
+	case strings.Contains(compact, "vergex") || strings.Contains(compact, "claw402") || strings.Contains(compact, "dynamicranking") || strings.Contains(value, "dynamic board") || strings.Contains(value, "gainers board") || strings.Contains(value, "signal board"):
+		return "vergex_signal"
 	case strings.Contains(compact, "hyperall"):
 		return "hyper_all"
 	case strings.Contains(compact, "hypermain"):
 		return "hyper_main"
-	case strings.Contains(value, "static") || strings.Contains(value, "固定") || strings.Contains(value, "静态"):
+	case strings.Contains(value, "static") || strings.Contains(value, "fixed"):
 		return "static"
 	default:
 		return value
@@ -284,10 +318,12 @@ func inferCoinSourceType(source CoinSourceConfig) string {
 		return "hyper_all"
 	case source.UseHyperMain:
 		return "hyper_main"
+	case source.VergexLimit > 0 || source.VergexMarketType != "" || source.VergexChain != "" || source.VergexLiqBand != "":
+		return "vergex_signal"
 	case source.HyperRankCategory != "" || source.HyperRankDirection != "" || source.HyperRankLimit > 0:
 		return "hyper_rank"
 	default:
-		return "hyper_rank"
+		return "vergex_signal"
 	}
 }
 
@@ -359,25 +395,25 @@ func splitLooseStringList(values []string) []string {
 
 func normalizeTimeframe(value string) string {
 	value = strings.ToLower(strings.TrimSpace(value))
-	value = strings.Trim(value, "\"'，,。 ")
+	value = strings.Trim(value, "\"', . ")
 	if value == "" {
 		return ""
 	}
 	aliases := map[string]string{
-		"1分钟":  "1m",
-		"3分钟":  "3m",
-		"5分钟":  "5m",
-		"15分钟": "15m",
-		"30分钟": "30m",
-		"1小时":  "1h",
-		"2小时":  "2h",
-		"4小时":  "4h",
-		"6小时":  "6h",
-		"8小时":  "8h",
-		"12小时": "12h",
-		"1天":   "1d",
-		"3天":   "3d",
-		"1周":   "1w",
+		"1 minute":  "1m",
+		"3 minute":  "3m",
+		"5 minute":  "5m",
+		"15 minute": "15m",
+		"30 minute": "30m",
+		"1 hour":    "1h",
+		"2 hour":    "2h",
+		"4 hour":    "4h",
+		"6 hour":    "6h",
+		"8 hour":    "8h",
+		"12 hour":   "12h",
+		"1 day":     "1d",
+		"3 day":     "3d",
+		"1 week":    "1w",
 	}
 	if alias, ok := aliases[value]; ok {
 		return alias
@@ -523,7 +559,7 @@ func StrategyClampWarnings(before, after StrategyConfig, lang string) []string {
 			return
 		}
 		if lang == "zh" {
-			warnings = append(warnings, fmt.Sprintf("%s 已从 %d 调整为 %d", labelZH, from, to))
+			warnings = append(warnings, fmt.Sprintf("%s adjusted from %d to %d", labelZH, from, to))
 			return
 		}
 		warnings = append(warnings, fmt.Sprintf("%s adjusted from %d to %d", labelEN, from, to))
@@ -533,21 +569,21 @@ func StrategyClampWarnings(before, after StrategyConfig, lang string) []string {
 			return
 		}
 		if lang == "zh" {
-			warnings = append(warnings, fmt.Sprintf("%s 已从 %.2f 调整为 %.2f", labelZH, from, to))
+			warnings = append(warnings, fmt.Sprintf("%s adjusted from %.2f to %.2f", labelZH, from, to))
 			return
 		}
 		warnings = append(warnings, fmt.Sprintf("%s adjusted from %.2f to %.2f", labelEN, from, to))
 	}
 
-	appendInt("最大持仓数", "max_positions", before.RiskControl.MaxPositions, after.RiskControl.MaxPositions)
-	appendInt("BTC/ETH 最大杠杆", "btc_eth_max_leverage", before.RiskControl.BTCETHMaxLeverage, after.RiskControl.BTCETHMaxLeverage)
-	appendInt("山寨币最大杠杆", "altcoin_max_leverage", before.RiskControl.AltcoinMaxLeverage, after.RiskControl.AltcoinMaxLeverage)
-	appendFloat("BTC/ETH 最大仓位价值倍数", "btc_eth_max_position_value_ratio", before.RiskControl.BTCETHMaxPositionValueRatio, after.RiskControl.BTCETHMaxPositionValueRatio)
-	appendFloat("山寨币最大仓位价值倍数", "altcoin_max_position_value_ratio", before.RiskControl.AltcoinMaxPositionValueRatio, after.RiskControl.AltcoinMaxPositionValueRatio)
-	appendFloat("最小盈亏比", "min_risk_reward_ratio", before.RiskControl.MinRiskRewardRatio, after.RiskControl.MinRiskRewardRatio)
-	appendFloat("最大保证金使用率", "max_margin_usage", before.RiskControl.MaxMarginUsage, after.RiskControl.MaxMarginUsage)
-	appendFloat("最小开仓金额", "min_position_size", before.RiskControl.MinPositionSize, after.RiskControl.MinPositionSize)
-	appendInt("最低置信度", "min_confidence", before.RiskControl.MinConfidence, after.RiskControl.MinConfidence)
+	appendInt("Max Positions", "max_positions", before.RiskControl.MaxPositions, after.RiskControl.MaxPositions)
+	appendInt("BTC/ETH Max Leverage", "btc_eth_max_leverage", before.RiskControl.BTCETHMaxLeverage, after.RiskControl.BTCETHMaxLeverage)
+	appendInt("Altcoin Max Leverage", "altcoin_max_leverage", before.RiskControl.AltcoinMaxLeverage, after.RiskControl.AltcoinMaxLeverage)
+	appendFloat("BTC/ETH Max Position Value Ratio", "btc_eth_max_position_value_ratio", before.RiskControl.BTCETHMaxPositionValueRatio, after.RiskControl.BTCETHMaxPositionValueRatio)
+	appendFloat("Altcoin Max Position Value Ratio", "altcoin_max_position_value_ratio", before.RiskControl.AltcoinMaxPositionValueRatio, after.RiskControl.AltcoinMaxPositionValueRatio)
+	appendFloat("Min Risk/Reward Ratio", "min_risk_reward_ratio", before.RiskControl.MinRiskRewardRatio, after.RiskControl.MinRiskRewardRatio)
+	appendFloat("Max Margin Usage", "max_margin_usage", before.RiskControl.MaxMarginUsage, after.RiskControl.MaxMarginUsage)
+	appendFloat("Min Position Size", "min_position_size", before.RiskControl.MinPositionSize, after.RiskControl.MinPositionSize)
+	appendInt("Min Confidence", "min_confidence", before.RiskControl.MinConfidence, after.RiskControl.MinConfidence)
 	return warnings
 }
 
@@ -783,6 +819,14 @@ type CoinSourceConfig struct {
 	HyperRankDirection string `json:"hyper_rank_direction,omitempty"`
 	// Hyperliquid dynamic ranking maximum count. Defaults to 5 and is hard capped at 10 for AI context safety.
 	HyperRankLimit int `json:"hyper_rank_limit,omitempty"`
+	// Vergex signal-ranking maximum count. Defaults to 5 and is hard capped at 10.
+	VergexLimit int `json:"vergex_limit,omitempty"`
+	// Vergex market type for detail endpoints, e.g. hip3_perp for Hyperliquid TradeFi perps.
+	VergexMarketType string `json:"vergex_market_type,omitempty"`
+	// Vergex chain query parameter. Defaults to hyperliquid.
+	VergexChain string `json:"vergex_chain,omitempty"`
+	// Vergex liquidation band query parameter.
+	VergexLiqBand string `json:"vergex_liq_band,omitempty"`
 	// Note: API URLs are now built automatically using NofxOSAPIKey from IndicatorConfig
 }
 
@@ -916,28 +960,29 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 	config := StrategyConfig{
 		Language: normalizedLang,
 		CoinSource: CoinSourceConfig{
-			SourceType:         "hyper_rank",
-			UseAI500:           false,
-			AI500Limit:         3,
-			UseOITop:           false,
-			OITopLimit:         3,
-			UseOILow:           false,
-			OILowLimit:         3,
-			UseHyperAll:        false,
-			UseHyperMain:       false,
-			HyperMainLimit:     30,
-			HyperRankCategory:  "stock",
-			HyperRankDirection: "gainers",
-			HyperRankLimit:     5,
+			SourceType:        "vergex_signal",
+			UseAI500:          false,
+			AI500Limit:        3,
+			UseOITop:          false,
+			OITopLimit:        3,
+			UseOILow:          false,
+			OILowLimit:        3,
+			UseHyperAll:       false,
+			UseHyperMain:      false,
+			HyperMainLimit:    30,
+			HyperRankCategory: "all",
+			VergexLimit:       10,
+			VergexMarketType:  "all",
+			VergexChain:       "hyperliquid",
 		},
 		Indicators: IndicatorConfig{
 			Klines: KlineConfig{
-				PrimaryTimeframe:     "5m",
-				PrimaryCount:         20,
-				LongerTimeframe:      "4h",
-				LongerCount:          10,
-				EnableMultiTimeframe: true,
-				SelectedTimeframes:   []string{"5m", "15m", "1h"},
+				PrimaryTimeframe:     "15m",
+				PrimaryCount:         30,
+				LongerTimeframe:      "",
+				LongerCount:          0,
+				EnableMultiTimeframe: false,
+				SelectedTimeframes:   []string{"15m"},
 			},
 			EnableRawKlines:   true, // Required - raw OHLCV data for AI analysis
 			EnableEMA:         false,
@@ -945,9 +990,9 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			EnableRSI:         false,
 			EnableATR:         false,
 			EnableBOLL:        false,
-			EnableVolume:      true,
-			EnableOI:          true,
-			EnableFundingRate: true,
+			EnableVolume:      false,
+			EnableOI:          false,
+			EnableFundingRate: false,
 			EMAPeriods:        []int{20, 50},
 			RSIPeriods:        []int{7, 14},
 			ATRPeriods:        []int{14},
@@ -969,57 +1014,57 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			PriceRankingLimit:      10,
 		},
 		RiskControl: RiskControlConfig{
-			MaxPositions:                 3,   // Max 3 coins simultaneously (CODE ENFORCED)
-			BTCETHMaxLeverage:            5,   // BTC/ETH exchange leverage (AI guided)
-			AltcoinMaxLeverage:           5,   // Altcoin exchange leverage (AI guided)
-			BTCETHMaxPositionValueRatio:  5.0, // BTC/ETH: max position = 5x equity (CODE ENFORCED)
-			AltcoinMaxPositionValueRatio: 1.0, // Altcoin: max position = 1x equity (CODE ENFORCED)
-			MaxMarginUsage:               0.9, // Max 90% margin usage (CODE ENFORCED)
+			MaxPositions:                 6,   // Hold up to 6 instruments (≈3 long + 3 short) simultaneously (CODE ENFORCED)
+			BTCETHMaxLeverage:            10,  // BTC/ETH exchange leverage (AI guided)
+			AltcoinMaxLeverage:           10,  // TradeFi exchange leverage (AI guided)
+			BTCETHMaxPositionValueRatio:  1.2, // Per-position notional = equity × 1.2 so several positions fit the margin
+			AltcoinMaxPositionValueRatio: 1.2, // Per-position notional = equity × 1.2 so several positions fit the margin
+			MaxMarginUsage:               1.0, // Claw402 Autopilot intentionally uses full margin when opening
 			MinPositionSize:              12,  // Min 12 USDT per position (CODE ENFORCED)
 			MinRiskRewardRatio:           3.0, // Min 3:1 profit/loss ratio (AI guided)
-			MinConfidence:                75,  // Min 75% confidence (AI guided)
+			MinConfidence:                78,  // Min 78% confidence (AI guided)
 		},
 	}
 
 	if lang == "zh" {
 		config.PromptSections = PromptSectionsConfig{
-			RoleDefinition: `# 你是一个专业的 Hyperliquid USDC 多资产交易AI
+			RoleDefinition: `# You are the NOFX Claw402 auto-trader
 
-你的任务是根据提供的市场数据做出交易决策。你可以分析并交易 Hyperliquid 上线的 USDC 永续合约，包括美股、大宗商品和加密资产。你是一个经验丰富的量化交易员，擅长跨资产技术分析和风险管理。`,
-			TradingFrequency: `# ⏱️ 交易频率意识
+Trade only the Hyperliquid tradable instruments returned by this cycle's Claw402.ai/Vergex board. The candidate pool comes from Claw402.ai/Vergex; before opening a position, you must combine Signal Lab, cost/liquidation heatmap and raw candles.`,
+			TradingFrequency: `# Trading Frequency
 
-- 优秀交易员：每天2-4笔 ≈ 每小时0.1-0.2笔
-- 每小时超过2笔 = 过度交易
-- 单笔持仓时间 ≥ 30-60分钟
-如果你发现自己每个周期都在交易 → 标准太低；如果持仓不到30分钟就平仓 → 太冲动。`,
-			EntryStandards: `# 🎯 入场标准（严格）
+- Prioritize waiting for high-quality opportunities; you do not need to trade every cycle.
+- Manage existing positions first, then consider opening new ones.
+- Do not churn in and out of the same symbol in one cycle.`,
+			EntryStandards: `# Entry Standards
 
-只在多个信号共振时入场。自由使用任何有效的分析方法，避免单一指标、信号矛盾、横盘震荡、或平仓后立即重新开仓等低质量行为。`,
-			DecisionProcess: `# 📋 决策流程
+Open a position only when Claw402 Signal Lab, cost/liquidation heatmap and raw candles broadly agree. The Claw402 ranking is only the candidate pool, not a standalone buy reason. Wait by default when any key data is missing or contradictory.`,
+			DecisionProcess: `# Decision Process
 
-1. 检查持仓 → 是否止盈/止损
-2. 扫描候选币种 + 多时间框架 → 是否存在强信号
-3. 先写思维链，再输出结构化JSON`,
+1. Check existing positions first: decide take profit, stop loss or hold.
+2. Pull this cycle's candidates from the Claw402 board, and for each candidate read Claw402 Ranking, Signal Lab and Cost/Liquidation Heatmap.
+3. Use raw candles to confirm entry, stop loss and take profit.
+4. Output concise reasoning and strict JSON.`,
 		}
 	} else {
 		config.PromptSections = PromptSectionsConfig{
-			RoleDefinition: `# You are a professional Hyperliquid USDC multi-asset trading AI
+			RoleDefinition: `# You are the NOFX Claw402 auto-trader
 
-Your task is to make trading decisions based on the provided market data. You can analyze and trade Hyperliquid-listed USDC perpetual markets, including US equities, commodities and crypto assets. You are an experienced quantitative trader skilled in cross-asset technical analysis and risk management.`,
-			TradingFrequency: `# ⏱️ Trading Frequency Awareness
+Trade Hyperliquid Claw402-ranked instruments only. The candidate pool comes from Claw402.ai/Vergex; before opening a position, combine Signal Lab, cost/liquidation heatmap and raw candles.`,
+			TradingFrequency: `# Trading Frequency
 
-- Excellent trader: 2-4 trades per day ≈ 0.1-0.2 trades per hour
-- >2 trades per hour = overtrading
-- Single position holding time ≥ 30-60 minutes
-If you find yourself trading every cycle → standards are too low; if closing positions in <30 minutes → too impulsive.`,
-			EntryStandards: `# 🎯 Entry Standards (Strict)
+- Wait for quality; you do not need to trade every cycle.
+- Manage existing positions before opening new ones.
+- Do not churn in and out of the same symbol in one cycle.`,
+			EntryStandards: `# Entry Standards
 
-Only enter positions when multiple signals resonate. Freely use any effective analysis methods, avoid low-quality behaviors such as single indicators, contradictory signals, sideways oscillation, or immediately restarting after closing positions.`,
-			DecisionProcess: `# 📋 Decision Process
+Open only when Claw402 Signal Lab, cost/liquidation heatmap and raw candles broadly agree. Ranking defines the candidate pool, not a standalone entry reason. Wait when key data is missing or contradictory.`,
+			DecisionProcess: `# Decision Process
 
-1. Check positions → whether to take profit/stop loss
-2. Scan candidate coins + multi-timeframe → whether strong signals exist
-3. Write chain of thought first, then output structured JSON`,
+1. Check current positions first: take profit, stop loss or hold.
+2. Pull this cycle's Claw402 board and read Claw402 Ranking, Signal Lab and Cost/Liquidation Heatmap for each candidate.
+3. Use raw candles to confirm entry, stop and target.
+4. Output concise reasoning and strict JSON.`,
 		}
 	}
 
@@ -1461,6 +1506,8 @@ func (c *StrategyConfig) getEffectiveCoinCount() int {
 		count = c.CoinSource.OILowLimit
 	case "hyper_rank":
 		count = c.CoinSource.HyperRankLimit
+	case "vergex_signal":
+		count = c.CoinSource.VergexLimit
 	case "hyper_main":
 		count = c.CoinSource.HyperMainLimit
 	case "hyper_all":

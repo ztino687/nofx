@@ -63,7 +63,7 @@ var xyzDexAssets = map[string]bool{
 // Users approve this builder during the top-right Hyperliquid connect flow before
 // their generated agent wallet is saved for live trading.
 //
-// Fee is in tenths of a basis point: 50 = 5 bps = 0.05% (万5). Existing
+// Fee is in tenths of a basis point: 50 = 5 bps = 0.05% (5 per 10,000). Existing
 // approvals at the prior 0.1% cap remain valid on-chain because 0.05% is
 // still within their approved max.
 var defaultBuilder = &hyperliquid.BuilderInfo{
@@ -143,16 +143,23 @@ func NewHyperliquidTrader(privateKeyHex string, walletAddr string, testnet bool,
 	// v0.36 fixed the spot-meta indexing panic that crashed earlier versions
 	// when Hyperliquid added new spot tokens whose Tokens[0] index pointed
 	// past the Tokens array end.
-	exchange := hyperliquid.NewExchange(
-		ctx,
-		privateKey,
-		apiURL,
-		nil,        // Meta — fetched automatically
-		"",         // vault address (empty for personal account)
-		walletAddr, // wallet address
-		nil,        // SpotMeta — fetched automatically
-		nil,        // perpDexs — fetched automatically
-	)
+	// The constructor still panics if any auto-fetch fails, so it runs inside
+	// initExchangeClient which converts the panic into a returned error.
+	exchange, err := initExchangeClient(func() *hyperliquid.Exchange {
+		return hyperliquid.NewExchange(
+			ctx,
+			privateKey,
+			apiURL,
+			nil,        // Meta — fetched automatically
+			"",         // vault address (empty for personal account)
+			walletAddr, // wallet address
+			nil,        // SpotMeta — fetched automatically
+			nil,        // perpDexs — fetched automatically
+		)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("Hyperliquid API is temporarily unavailable, please retry: %w", err)
+	}
 
 	logger.Infof("✓ Hyperliquid trader initialized successfully (testnet=%v, wallet=%s)", testnet, walletAddr)
 

@@ -30,10 +30,14 @@ export function TraderConfigViewModal({
     label: string
     value: string | number | boolean
   }) => (
-    <div className="flex justify-between items-start py-2 border-b border-[#2B3139] last:border-b-0">
-      <span className="text-sm text-[#848E9C] font-medium">{label}</span>
-      <span className="text-sm text-[#EAECEF] font-mono text-right">
-        {typeof value === 'boolean' ? (value ? t('traderConfigView.yes', language) : t('traderConfigView.no', language)) : value}
+    <div className="flex justify-between items-start py-2 border-b border-nofx-gold/20 last:border-b-0">
+      <span className="text-sm text-nofx-text-muted font-medium">{label}</span>
+      <span className="text-sm text-nofx-text font-mono text-right">
+        {typeof value === 'boolean'
+          ? value
+            ? t('traderConfigView.yes', language)
+            : t('traderConfigView.no', language)
+          : value}
       </span>
     </div>
   )
@@ -41,21 +45,28 @@ export function TraderConfigViewModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm">
       <div
-        className="bg-[#1E2329] border border-[#2B3139] rounded-xl shadow-2xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto"
+        className="bg-nofx-bg-lighter border border-nofx-gold/20 rounded-xl shadow-2xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-[#2B3139] bg-gradient-to-r from-[#1E2329] to-[#252B35]">
+        <div className="flex items-center justify-between p-6 border-b border-nofx-gold/20 bg-nofx-bg-lighter">
           <div className="flex items-center gap-3">
             <PunkAvatar
-              seed={getTraderAvatar(traderData.trader_id || '', traderData.trader_name)}
+              seed={getTraderAvatar(
+                traderData.trader_id || '',
+                traderData.trader_name
+              )}
               size={48}
               className="rounded-lg"
             />
             <div>
-              <h2 className="text-xl font-bold text-[#EAECEF]">{t('traderConfigView.traderConfig', language)}</h2>
-              <p className="text-sm text-[#848E9C] mt-1">
-                {t('traderConfigView.configInfo', language, { name: traderData.trader_name })}
+              <h2 className="text-xl font-bold text-nofx-text">
+                {t('traderConfigView.traderConfig', language)}
+              </h2>
+              <p className="text-sm text-nofx-text-muted mt-1">
+                {t('traderConfigView.configInfo', language, {
+                  name: traderData.trader_name,
+                })}
               </p>
             </div>
           </div>
@@ -65,16 +76,18 @@ export function TraderConfigViewModal({
               className="px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1"
               style={
                 traderData.is_running
-                  ? { background: 'rgba(14, 203, 129, 0.1)', color: '#0ECB81' }
-                  : { background: 'rgba(246, 70, 93, 0.1)', color: '#F6465D' }
+                  ? { background: 'rgba(46, 139, 87, 0.1)', color: '#2E8B57' }
+                  : { background: 'rgba(214, 67, 58, 0.1)', color: '#D6433A' }
               }
             >
               <span>{traderData.is_running ? '●' : '○'}</span>
-              {traderData.is_running ? t('traderConfigView.running', language) : t('traderConfigView.stopped', language)}
+              {traderData.is_running
+                ? t('traderConfigView.running', language)
+                : t('traderConfigView.stopped', language)}
             </div>
             <button
               onClick={onClose}
-              className="w-8 h-8 rounded-lg text-[#848E9C] hover:text-[#EAECEF] hover:bg-[#2B3139] transition-colors flex items-center justify-center"
+              className="w-8 h-8 rounded-lg text-nofx-text-muted hover:text-nofx-text hover:bg-nofx-bg-deeper transition-colors flex items-center justify-center"
             >
               ✕
             </button>
@@ -84,8 +97,8 @@ export function TraderConfigViewModal({
         {/* Content */}
         <div className="p-6 space-y-6">
           {/* Basic Info */}
-          <div className="bg-[#0B0E11] border border-[#2B3139] rounded-lg p-5">
-            <h3 className="text-lg font-semibold text-[#EAECEF] mb-4 flex items-center gap-2">
+          <div className="bg-nofx-bg border border-nofx-gold/20 rounded-lg p-5">
+            <h3 className="text-lg font-semibold text-nofx-text mb-4 flex items-center gap-2">
               {'🤖 ' + t('traderConfigView.basicInfo', language)}
             </h3>
             <div className="space-y-3">
@@ -107,19 +120,25 @@ export function TraderConfigViewModal({
               />
               <InfoRow
                 label={t('traderConfigView.marginMode', language)}
-                value={traderData.is_cross_margin ? t('traderConfigView.crossMargin', language) : t('traderConfigView.isolatedMargin', language)}
+                value={
+                  traderData.is_cross_margin
+                    ? t('traderConfigView.crossMargin', language)
+                    : t('traderConfigView.isolatedMargin', language)
+                }
               />
               <InfoRow
                 label={t('traderConfigView.scanIntervalLabel', language)}
-                value={t('traderConfigView.scanInterval', language, { minutes: traderData.scan_interval_minutes || 3 })}
+                value={t('traderConfigView.scanInterval', language, {
+                  minutes: traderData.scan_interval_minutes || 15,
+                })}
               />
             </div>
           </div>
 
           {/* Strategy Info - only show if strategy is bound */}
           {traderData.strategy_id && (
-            <div className="bg-[#0B0E11] border border-[#2B3139] rounded-lg p-5">
-              <h3 className="text-lg font-semibold text-[#EAECEF] mb-4 flex items-center gap-2">
+            <div className="bg-nofx-bg border border-nofx-gold/20 rounded-lg p-5">
+              <h3 className="text-lg font-semibold text-nofx-text mb-4 flex items-center gap-2">
                 {'📋 ' + t('traderConfigView.strategyUsed', language)}
               </h3>
               <div className="space-y-3">
@@ -133,10 +152,10 @@ export function TraderConfigViewModal({
         </div>
 
         {/* Footer */}
-        <div className="flex justify-end p-6 border-t border-[#2B3139] bg-gradient-to-r from-[#1E2329] to-[#252B35]">
+        <div className="flex justify-end p-6 border-t border-nofx-gold/20 bg-nofx-bg-lighter">
           <button
             onClick={onClose}
-            className="px-6 py-3 bg-[#2B3139] text-[#EAECEF] rounded-lg hover:bg-[#404750] transition-all duration-200 border border-[#404750]"
+            className="px-6 py-3 bg-nofx-bg-deeper text-nofx-text rounded-lg hover:bg-nofx-bg transition-all duration-200 border border-nofx-gold/20"
           >
             {t('traderConfigView.close', language)}
           </button>

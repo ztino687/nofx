@@ -30,6 +30,10 @@ func (at *AutoTrader) runCycle() error {
 		return nil
 	}
 
+	if err := at.reloadStrategyConfigIfChanged(); err != nil {
+		at.logWarnf("⚠️ Strategy refresh failed, using current in-memory config: %v", err)
+	}
+
 	// Check USDC balance periodically for claw402 users (every 10 cycles)
 	if at.callCount%10 == 0 && store.IsClaw402Config(at.config.AIModel) {
 		at.checkClaw402Balance()
@@ -47,7 +51,9 @@ func (at *AutoTrader) runCycle() error {
 		at.logWarnf("⏸ Risk control: Trading paused, remaining %.0f minutes", remaining.Minutes())
 		record.Success = false
 		record.ErrorMessage = fmt.Sprintf("Risk control paused, remaining %.0f minutes", remaining.Minutes())
-		at.saveDecision(record)
+		if err := at.saveDecision(record); err != nil {
+			at.logWarnf("⚠ Failed to save decision record: %v", err)
+		}
 		return nil
 	}
 
@@ -64,7 +70,9 @@ func (at *AutoTrader) runCycle() error {
 		at.logErrorf("failed to build trading context: %v", err)
 		record.Success = false
 		record.ErrorMessage = fmt.Sprintf("Failed to build trading context: %v", err)
-		at.saveDecision(record)
+		if saveErr := at.saveDecision(record); saveErr != nil {
+			at.logWarnf("⚠ Failed to save decision record: %v", saveErr)
+		}
 		return fmt.Errorf("failed to build trading context: %w", err)
 	}
 
@@ -84,7 +92,9 @@ func (at *AutoTrader) runCycle() error {
 			PositionCount:         ctx.Account.PositionCount,
 			InitialBalance:        at.initialBalance,
 		}
-		at.saveDecision(record)
+		if err := at.saveDecision(record); err != nil {
+			at.logWarnf("⚠ Failed to save decision record: %v", err)
+		}
 		return nil
 	}
 
@@ -157,7 +167,9 @@ func (at *AutoTrader) runCycle() error {
 			}
 		}
 
-		at.saveDecision(record)
+		if saveErr := at.saveDecision(record); saveErr != nil {
+			at.logWarnf("⚠ Failed to save decision record: %v", saveErr)
+		}
 
 		// In safe mode, don't return error — keep the loop running to retry next cycle
 		if at.safeMode {
@@ -210,6 +222,9 @@ func (at *AutoTrader) runCycle() error {
 	// 8. Sort decisions: ensure close positions first, then open positions (prevent position stacking overflow)
 	sortedDecisions := sortDecisionsByPriority(aiDecision.Decisions)
 	sortedDecisions = at.filterDecisionsToStrategyUniverse(sortedDecisions, ctx)
+	// Per-cycle long/short coverage: if the AI left a direction uncovered, force
+	// the strongest bullish/bearish candidate (account-sized, risk-enforced).
+	sortedDecisions = at.ensureLongShortCoverage(sortedDecisions, ctx, ctx.Account.TotalEquity)
 
 	logger.Info("🔄 Execution order (optimized): Close positions first → Open positions later")
 	for i, d := range sortedDecisions {
@@ -242,7 +257,9 @@ func (at *AutoTrader) runCycle() error {
 		}
 	}
 
-	// Execute decisions and record results
+	// Execute decisions and record results. Trade throttle is applied here,
+	// immediately before order placement, so AI churn cannot become live orders.
+	opensAllowedThisCycle := 0
 	for _, d := range sortedDecisions {
 		// Check if trader is stopped before each decision (allow immediate stop during execution)
 		at.isRunningMutex.RLock()
@@ -265,6 +282,17 @@ func (at *AutoTrader) runCycle() error {
 			Reasoning:  d.Reasoning,
 			Timestamp:  time.Now().UTC(),
 			Success:    false,
+		}
+
+		if reason := at.tradeThrottleReason(d, ctx, opensAllowedThisCycle); reason != "" {
+			at.logWarnf("🧊 %s %s blocked: %s", d.Symbol, d.Action, reason)
+			actionRecord.Error = reason
+			record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf("🧊 %s %s blocked: %s", d.Symbol, d.Action, reason))
+			record.Decisions = append(record.Decisions, actionRecord)
+			continue
+		}
+		if isOpenAction(d.Action) {
+			opensAllowedThisCycle++
 		}
 
 		if err := at.executeDecisionWithRecord(&d, &actionRecord); err != nil {
@@ -732,7 +760,7 @@ func sortDecisionsByPriority(decisions []kernel.Decision) []kernel.Decision {
 func (at *AutoTrader) checkClaw402Balance() {
 	scanMinutes := int(at.config.ScanInterval.Minutes())
 	if scanMinutes <= 0 {
-		scanMinutes = 3
+		scanMinutes = 15
 	}
 	dailyCost, _ := store.EstimateRunway(1.0, at.config.CustomModelName, scanMinutes)
 	logger.Infof("💰 [%s] Estimated daily AI cost: ~$%.2f (model: %s, interval: %dm)",

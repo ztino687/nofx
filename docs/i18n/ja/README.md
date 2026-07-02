@@ -63,15 +63,7 @@ curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bas
 
 ## クイックデモ
 
-<p align="center">
-  <a href="https://drive.google.com/file/d/1frzw-HDZ3viQvLOQKsAJGc9bT0dXs68D/view">
-    <img src="../../../screenshots/demo-cover.png" alt="NOFX quick demo video" width="900"/>
-  </a>
-</p>
-
-<p align="center">
-  カバー画像をクリックしてデモ動画をご覧ください。
-</p>
+https://github.com/user-attachments/assets/3310f495-14c5-4586-a1cc-3d32e44aa505
 
 ---
 

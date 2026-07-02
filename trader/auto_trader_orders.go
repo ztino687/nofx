@@ -9,6 +9,20 @@ import (
 	"time"
 )
 
+const (
+	// marginOverheadFactor and takerFeeRate approximate the total funds an
+	// exchange reserves when opening a position:
+	// totalRequired ≈ positionSize/leverage + positionSize*takerFeeRate + positionSize/leverage*1%
+	//              = positionSize * (marginOverheadFactor/leverage + takerFeeRate)
+	marginOverheadFactor = 1.01
+	takerFeeRate         = 0.001
+
+	// positionSizeSafetyFactor leaves a buffer below the maximum affordable
+	// position size so a price move between sizing and execution cannot
+	// trigger an insufficient-margin rejection.
+	positionSizeSafetyFactor = 0.98
+)
+
 // executeDecisionWithRecord executes AI decision and records detailed information
 func (at *AutoTrader) executeDecisionWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
 	switch decision.Action {
@@ -53,7 +67,7 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *kernel.Decision, actio
 	// Get current price
 	marketData, err := market.GetWithExchange(decision.Symbol, at.exchange)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get market data for %s: %w", decision.Symbol, err)
 	}
 
 	// Get balance (needed for multiple checks)
@@ -76,6 +90,8 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *kernel.Decision, actio
 		equity = availableBalance // Fallback to available balance
 	}
 
+	at.applyAutopilotFullSizeOpen(decision, equity)
+
 	// [CODE ENFORCED] Position Value Ratio Check: position_value <= equity × ratio
 	adjustedPositionSize, wasCapped := at.enforcePositionValueRatio(decision.PositionSizeUSD, equity, decision.Symbol)
 	if wasCapped {
@@ -83,15 +99,12 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *kernel.Decision, actio
 	}
 
 	// ⚠️ Auto-adjust position size if insufficient margin
-	// Formula: totalRequired = positionSize/leverage + positionSize*0.001 + positionSize/leverage*0.01
-	//        = positionSize * (1.01/leverage + 0.001)
-	marginFactor := 1.01/float64(decision.Leverage) + 0.001
+	marginFactor := marginOverheadFactor/float64(decision.Leverage) + takerFeeRate
 	maxAffordablePositionSize := availableBalance / marginFactor
 
 	actualPositionSize := decision.PositionSizeUSD
 	if actualPositionSize > maxAffordablePositionSize {
-		// Use 98% of max to leave buffer for price fluctuation
-		adjustedSize := maxAffordablePositionSize * 0.98
+		adjustedSize := maxAffordablePositionSize * positionSizeSafetyFactor
 		logger.Infof("  ⚠️ Position size %.2f exceeds max affordable %.2f, auto-reducing to %.2f",
 			actualPositionSize, maxAffordablePositionSize, adjustedSize)
 		actualPositionSize = adjustedSize
@@ -117,7 +130,7 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *kernel.Decision, actio
 	// Open position
 	order, err := at.trader.OpenLong(decision.Symbol, quantity, decision.Leverage)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to open long position for %s: %w", decision.Symbol, err)
 	}
 
 	// Record order ID
@@ -170,7 +183,7 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *kernel.Decision, acti
 	// Get current price
 	marketData, err := market.GetWithExchange(decision.Symbol, at.exchange)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get market data for %s: %w", decision.Symbol, err)
 	}
 
 	// Get balance (needed for multiple checks)
@@ -193,6 +206,8 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *kernel.Decision, acti
 		equity = availableBalance // Fallback to available balance
 	}
 
+	at.applyAutopilotFullSizeOpen(decision, equity)
+
 	// [CODE ENFORCED] Position Value Ratio Check: position_value <= equity × ratio
 	adjustedPositionSize, wasCapped := at.enforcePositionValueRatio(decision.PositionSizeUSD, equity, decision.Symbol)
 	if wasCapped {
@@ -200,15 +215,12 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *kernel.Decision, acti
 	}
 
 	// ⚠️ Auto-adjust position size if insufficient margin
-	// Formula: totalRequired = positionSize/leverage + positionSize*0.001 + positionSize/leverage*0.01
-	//        = positionSize * (1.01/leverage + 0.001)
-	marginFactor := 1.01/float64(decision.Leverage) + 0.001
+	marginFactor := marginOverheadFactor/float64(decision.Leverage) + takerFeeRate
 	maxAffordablePositionSize := availableBalance / marginFactor
 
 	actualPositionSize := decision.PositionSizeUSD
 	if actualPositionSize > maxAffordablePositionSize {
-		// Use 98% of max to leave buffer for price fluctuation
-		adjustedSize := maxAffordablePositionSize * 0.98
+		adjustedSize := maxAffordablePositionSize * positionSizeSafetyFactor
 		logger.Infof("  ⚠️ Position size %.2f exceeds max affordable %.2f, auto-reducing to %.2f",
 			actualPositionSize, maxAffordablePositionSize, adjustedSize)
 		actualPositionSize = adjustedSize
@@ -234,7 +246,7 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *kernel.Decision, acti
 	// Open position
 	order, err := at.trader.OpenShort(decision.Symbol, quantity, decision.Leverage)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to open short position for %s: %w", decision.Symbol, err)
 	}
 
 	// Record order ID
@@ -269,7 +281,7 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *kernel.Decision, acti
 	// Get current price
 	marketData, err := market.GetWithExchange(decision.Symbol, at.exchange)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get market data for %s: %w", decision.Symbol, err)
 	}
 	actionRecord.Price = marketData.CurrentPrice
 
@@ -311,7 +323,7 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *kernel.Decision, acti
 	// Close position
 	order, err := at.trader.CloseLong(decision.Symbol, 0) // 0 = close all
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to close long position for %s: %w", decision.Symbol, err)
 	}
 
 	// Record order ID
@@ -333,7 +345,7 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *kernel.Decision, act
 	// Get current price
 	marketData, err := market.GetWithExchange(decision.Symbol, at.exchange)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get market data for %s: %w", decision.Symbol, err)
 	}
 	actionRecord.Price = marketData.CurrentPrice
 
@@ -375,7 +387,7 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *kernel.Decision, act
 	// Close position
 	order, err := at.trader.CloseShort(decision.Symbol, 0) // 0 = close all
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to close short position for %s: %w", decision.Symbol, err)
 	}
 
 	// Record order ID
