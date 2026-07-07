@@ -731,7 +731,10 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 		"trader_id":   traderID,
 		"trader_name": req.Name,
 		"ai_model":    req.AIModelID,
-		"message":     "Trader updated successfully",
+		// A running trader is restarted with the new config (async above), so
+		// report it as running — callers must not fire a redundant start.
+		"is_running": wasRunning,
+		"message":    "Trader updated successfully",
 	})
 }
 
@@ -792,7 +795,10 @@ func (s *Server) handleStartTrader(c *gin.Context) {
 	if existingTrader != nil {
 		status := existingTrader.GetStatus()
 		if isRunning, ok := status["is_running"].(bool); ok && isRunning {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Trader is already running"})
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":     "Trader is already running",
+				"error_key": "trader.start.already_running",
+			})
 			return
 		}
 		// Trader exists but is stopped - remove from memory to reload fresh config
@@ -848,6 +854,24 @@ func (s *Server) handleStartTrader(c *gin.Context) {
 		}
 		SafeBadRequestWithDetails(c, describeTraderStartError(traderName, err), "trader.start.setup_invalid", traderSetupReasonParams(err, "", "trader_name", traderName))
 		return
+	}
+
+	// Server-side launch gate: the trader cannot function without a funded AI
+	// wallet and a ready exchange account, so verify both before the run loop
+	// starts. `?force=true` skips the gate for deliberate manual overrides.
+	if c.Query("force") != "true" {
+		// strategyRequired=false: a trader that loaded into memory necessarily
+		// has a valid strategy (the manager refuses to load without one), so the
+		// preflight strategy check would be redundant here.
+		preflight := s.runLaunchPreflight(userID, fullCfg.AIModel, fullCfg.Exchange, fullCfg.Strategy, false)
+		if !preflight.Ready {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":     formatTraderStartError(preflight.Summary(), "Complete the failing checks, then start the bot again"),
+				"error_key": "trader.start.preflight_failed",
+				"preflight": preflight,
+			})
+			return
+		}
 	}
 
 	// Start trader

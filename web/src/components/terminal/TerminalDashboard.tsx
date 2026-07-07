@@ -17,6 +17,7 @@ import { KlineChart } from './KlineChart'
 import { ExecutionLog } from './ExecutionLog'
 import { SignalMatrix } from './SignalMatrix'
 import { RiskRadar } from './RiskRadar'
+import { useDemoEngine } from '../../lib/demo/useDemoEngine'
 
 // crypto majors trade on the Hyperliquid main dex (no hip3 cost/liq heatmap);
 // everything else in the universe is an xyz-dex synthetic market that does.
@@ -88,49 +89,76 @@ export function TerminalDashboard({
   traders,
   selectedTraderId,
   onTraderSelect,
-  status,
-  account,
-  positions,
-  decisions,
+  status: propStatus,
+  account: propAccount,
+  positions: propPositions,
+  decisions: propDecisions,
 }: TerminalDashboardProps) {
   const traderId = selectedTrader?.trader_id || selectedTraderId
   useTick(1000)
   const clock = new Date().toLocaleTimeString('en-GB', { hour12: false })
 
-  const { data: fullStats } = useSWR(
+  const { data: realFullStats } = useSWR(
     traderId ? ['full-stats', traderId] : null,
     () => api.getFullStats(traderId!, true),
     { refreshInterval: 30000, shouldRetryOnError: false }
   )
-  const { data: history } = useSWR(
+  const { data: realHistory } = useSWR(
     traderId ? ['pos-history', traderId] : null,
     () => api.getPositionHistory(traderId!, 50, true),
     { refreshInterval: 60000, shouldRetryOnError: false }
   )
-  const { data: config } = useSWR(
+  const { data: realConfig } = useSWR(
     traderId ? ['trader-config', traderId] : null,
     () => api.getTraderConfig(traderId!, true),
     { refreshInterval: 120000, shouldRetryOnError: false }
   )
-
-  const latest = decisions && decisions.length > 0 ? decisions[0] : undefined
-  const candidateCoins = latest?.candidate_coins ?? []
-
-  const { data: flow } = useSWR(
+  const { data: realFlow } = useSWR(
     traderId ? ['flow-markets', traderId] : null,
     () => api.getFlowMarkets(selectedTrader?.ai_model, 'mainnet', '1h', 50, true),
     // paid x402 endpoint — poll slowly (5m) to conserve claw402 funds; the
     // topology beam animation is client-side and stays fast regardless
     { refreshInterval: 300000, shouldRetryOnError: false }
   )
-  const flowItems = flow?.data?.inflow ?? []
-
-  const { data: signalRank } = useSWR(
+  const { data: realSignalRank } = useSWR(
     traderId ? ['signal-rank', traderId] : null,
     () => api.getSignalRanking(selectedTrader?.ai_model, 'mainnet', 'all', 30, true),
     // paid x402 endpoint — poll slowly (5m) to conserve claw402 funds
     { refreshInterval: 300000, shouldRetryOnError: false }
   )
+
+  // Demo / showcase mode for product walkthroughs. Toggle with Shift+D (or the
+  // discreet corner dot). Generates a fast, profitable-looking US-equity dataset
+  // entirely client-side — it never touches the backend or any real account.
+  // When off, real data flows through unchanged.
+  const [demo, setDemo] = useState(false)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.shiftKey && (e.key === 'D' || e.key === 'd')) {
+        const el = document.activeElement
+        if (el && /^(input|textarea|select)$/i.test(el.tagName)) return
+        setDemo((v) => !v)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+  const sim = useDemoEngine(demo)
+  const on = demo && !!sim
+
+  const status = on ? sim!.status : propStatus
+  const account = on ? sim!.account : propAccount
+  const positions = on ? sim!.positions : propPositions
+  const decisions = on ? sim!.decisions : propDecisions
+  const fullStats = on ? sim!.fullStats : realFullStats
+  const history = on ? sim!.history : realHistory
+  const config = on ? (sim!.config as unknown as typeof realConfig) : realConfig
+  const flow = on ? sim!.flow : realFlow
+  const signalRank = on ? sim!.signalRank : realSignalRank
+
+  const latest = decisions && decisions.length > 0 ? decisions[0] : undefined
+  const candidateCoins = latest?.candidate_coins ?? []
+  const flowItems = flow?.data?.inflow ?? []
 
   // Both the cost/liq map and the order book follow this symbol so they stay in
   // sync. The heatmap only covers hip3_perp synthetic markets, so we pick a
@@ -236,6 +264,26 @@ export function TerminalDashboard({
 
   return (
     <div className="nofx-terminal" style={{ minHeight: '100vh', padding: 0 }}>
+      {/* discreet, unlabelled showcase toggle (Shift+D also works) */}
+      <button
+        type="button"
+        onClick={() => setDemo((v) => !v)}
+        aria-label="toggle presentation mode"
+        style={{
+          position: 'fixed',
+          right: 10,
+          bottom: 10,
+          zIndex: 9999,
+          width: 12,
+          height: 12,
+          padding: 0,
+          borderRadius: '50%',
+          border: 'none',
+          cursor: 'pointer',
+          background: on ? 'var(--tm-up)' : 'rgba(26,24,19,0.2)',
+          opacity: on ? 0.55 : 0.18,
+        }}
+      />
       {/* centered, capped content column — no border (keeps it from feeling
           embedded) but bounded so the aspect-ratio SVGs don't balloon on wide screens */}
       {navSlot &&
@@ -255,6 +303,24 @@ export function TerminalDashboard({
           navSlot,
         )}
       <div className="tm-box" style={{ maxWidth: 1280, margin: '0 auto', border: 'none' }}>
+        {/* runtime health banner — AI fee wallet dry / safe mode would otherwise
+            only be visible in server logs while the bot silently idles */}
+        {!on && status && (status.safe_mode || status.ai_wallet_status === 'empty' || status.ai_wallet_status === 'low') && (
+          <div className="tm-mono" style={{ display: 'flex', gap: 10, alignItems: 'center', margin: '8px 14px 0', padding: '8px 12px', fontSize: 11, border: '1px solid var(--tm-down)', color: 'var(--tm-down)', background: 'rgba(200,60,40,0.06)', flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 600 }}>
+              {status.ai_wallet_status === 'empty'
+                ? 'AI fee wallet is out of USDC — decisions are failing.'
+                : status.ai_wallet_status === 'low'
+                  ? `AI fee wallet is low (${(status.ai_wallet_balance_usdc ?? 0).toFixed(2)} USDC) — top up soon.`
+                  : 'Safe mode: AI failed repeatedly, no new positions are being opened.'}
+            </span>
+            <span style={{ color: 'var(--tm-ink-2)' }}>
+              {status.ai_wallet_status === 'empty' || status.ai_wallet_status === 'low'
+                ? 'Deposit Base USDC to the Claw402 wallet, the trader recovers automatically.'
+                : status.safe_mode_reason || ''}
+            </span>
+          </div>
+        )}
         {/* config / identity strip — first row, flows directly under the global nav */}
         <div className="tm-mono" style={{ display: 'flex', gap: 16, padding: '6px 14px', fontSize: 11, color: 'var(--tm-ink-2)', flexWrap: 'wrap' }}>
           <span style={{ fontWeight: 500 }}>{selectedTrader?.trader_name ?? 'NOFX'}</span>
@@ -273,14 +339,21 @@ export function TerminalDashboard({
         </div>
         <div className="tm-rule" />
 
-        {/* metric row */}
+        {/* metric row — "Total P/L" is equity-based (includes unrealized);
+            "Realized P/L" is closed-trades only and matches PF/win-rate/sharpe,
+            so the two never read as contradicting each other */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)' }}>
           {[
             { l: 'Equity', v: fmtUsd(account?.total_equity), c: 'var(--tm-ink)' },
-            { l: 'Total P/L', v: `${fmtUsd(pnl, true)} (${fmtPct(pnlPct)})`, c: up ? 'var(--tm-up)' : 'var(--tm-dn)' },
-            { l: 'Win rate', v: fullStats != null ? `${fullStats.win_rate.toFixed(1)}%` : '—', c: 'var(--tm-ink)' },
+            { l: 'Total P/L · incl. unrealized', v: `${fmtUsd(pnl, true)} (${fmtPct(pnlPct)})`, c: up ? 'var(--tm-up)' : 'var(--tm-dn)' },
+            {
+              l: 'Realized P/L · closed trades',
+              v: fullStats != null ? fmtUsd(fullStats.total_pnl, true) : '—',
+              c: fullStats != null && fullStats.total_pnl >= 0 ? 'var(--tm-up)' : 'var(--tm-dn)',
+            },
             { l: 'Profit factor', v: fullStats != null ? fullStats.profit_factor.toFixed(2) : '—', c: 'var(--tm-ink)' },
-            { l: 'Max drawdown', v: fullStats != null ? `-${(fullStats.max_drawdown_pct * 100).toFixed(1)}%` : '—', c: 'var(--tm-dn)' },
+            // max_drawdown_pct is already a percent (18.5 = -18.5%)
+            { l: 'Max drawdown', v: fullStats != null ? `-${fullStats.max_drawdown_pct.toFixed(1)}%` : '—', c: 'var(--tm-dn)' },
           ].map((m, i) => (
             <div key={m.l} style={{ padding: '12px 14px', borderRight: i < 4 ? cellBorder : 'none' }}>
               <div className="tm-sc">{m.l}</div>
@@ -295,11 +368,14 @@ export function TerminalDashboard({
           <>
             <div className="tm-mono" style={{ display: 'flex', gap: 18, padding: '6px 14px', fontSize: 11, color: 'var(--tm-ink-2)', flexWrap: 'wrap' }}>
               <span className="tm-sc">trades <b style={{ color: 'var(--tm-ink)' }}>{fullStats.total_trades}</b></span>
-              <span className="tm-sc tm-up">win {fullStats.win_trades}</span>
+              <span className="tm-sc tm-up">win {fullStats.win_trades} ({fullStats.win_rate.toFixed(1)}%)</span>
               <span className="tm-sc tm-dn">loss {fullStats.loss_trades}</span>
-              <span className="tm-sc">sharpe <b style={{ color: 'var(--tm-ink)' }}>{fullStats.sharpe_ratio.toFixed(2)}</b></span>
+              {/* fee-drag chain: gross realized − fees = net realized */}
+              <span className="tm-sc">gross <b style={{ color: 'var(--tm-ink)' }}>{fmtUsd(fullStats.total_pnl + fullStats.total_fee, true)}</b></span>
+              <span className="tm-sc">fees <b style={{ color: 'var(--tm-ink)' }}>-{fmtUsd(fullStats.total_fee)}</b></span>
+              <span className="tm-sc">net <b style={{ color: fullStats.total_pnl >= 0 ? 'var(--tm-up)' : 'var(--tm-dn)' }}>{fmtUsd(fullStats.total_pnl, true)}</b></span>
+              <span className="tm-sc">sharpe/trade <b style={{ color: 'var(--tm-ink)' }}>{fullStats.sharpe_ratio.toFixed(2)}</b></span>
               <span className="tm-sc">avg win/loss <b style={{ color: 'var(--tm-ink)' }}>{fullStats.avg_win.toFixed(2)}/{fullStats.avg_loss.toFixed(2)}</b></span>
-              <span className="tm-sc">fees <b style={{ color: 'var(--tm-ink)' }}>{fmtUsd(fullStats.total_fee)}</b></span>
             </div>
             <div className="tm-rule" />
           </>
@@ -315,19 +391,20 @@ export function TerminalDashboard({
                 back to the other one if the guess is wrong */}
             <LiquidationMap
               symbol={activeSym}
+              demo={on}
               marketType={CRYPTO_MAJORS.has(activeSym) ? 'perp' : 'hip3_perp'}
               height={ROW1_H - 130}
             />
           </div>
           <div style={{ ...sc, borderRight: cellBorder, height: ROW1_H, overflow: 'hidden' }}>
-            <OrderBook symbol={activeSym} markPrice={positions?.find((p) => baseLabel(p.symbol) === activeSym)?.entry_price} />
+            <OrderBook symbol={activeSym} demo={on} markPrice={positions?.find((p) => baseLabel(p.symbol) === activeSym)?.entry_price} />
           </div>
           <div style={{ ...sc, height: ROW1_H, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-            <SignalMatrix items={signalRank?.items} active={activeSym} onSelect={setSelectedSym} />
+            <SignalMatrix items={signalRank?.items} max={18} active={activeSym} onSelect={setSelectedSym} />
             {/* the live K-line always sits under the selector and flexes to fill */}
             <div className="tm-rule" style={{ margin: '10px 0 8px' }} />
             <div style={{ flex: 1, minHeight: 0 }}>
-              <KlineChart symbol={activeSym} fill />
+              <KlineChart symbol={activeSym} fill demo={on} />
             </div>
           </div>
         </div>

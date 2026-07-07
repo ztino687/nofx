@@ -27,7 +27,7 @@ import type {
   Strategy,
   StrategyConfig,
 } from '../types'
-import type { AIModel, Exchange } from '../types'
+import { launchAutopilot } from '../lib/launch/launchAutopilot'
 import type {
   MarketSymbol,
   VergexHeatmapBin,
@@ -36,7 +36,7 @@ import type {
   VergexSignalItem,
   VergexSignalLabResponse,
 } from '../lib/api/data'
-import { buildDashboardPath } from '../router/paths'
+import { buildDashboardPath, ROUTES } from '../router/paths'
 
 const API_BASE = import.meta.env.VITE_API_BASE || ''
 
@@ -78,48 +78,6 @@ const confidenceOptions = [65, 75, 82]
 
 const text = (language: string, zh: string, en: string) =>
   language === 'zh' ? zh : en
-
-function modelHasCredential(model: AIModel) {
-  return Boolean(model.has_api_key || model.apiKey)
-}
-
-function pickTradingModel(models: AIModel[]) {
-  return (
-    models.find(
-      (model) =>
-        model.provider === 'claw402' &&
-        model.enabled &&
-        modelHasCredential(model)
-    ) ||
-    models.find((model) => model.enabled && modelHasCredential(model)) ||
-    null
-  )
-}
-
-function isHyperliquidExchange(exchange: Exchange) {
-  return exchange.exchange_type === 'hyperliquid'
-}
-
-function hyperliquidWalletAddress(exchange: Exchange) {
-  return exchange.hyperliquidWalletAddr || ''
-}
-
-function pickTradingExchange(exchanges: Exchange[]) {
-  return (
-    exchanges.find(
-      (exchange) =>
-        isHyperliquidExchange(exchange) &&
-        exchange.enabled &&
-        modelHasExchangeKey(exchange) &&
-        Boolean(exchange.hyperliquidBuilderApproved) &&
-        hyperliquidWalletAddress(exchange).trim() !== ''
-    ) || null
-  )
-}
-
-function modelHasExchangeKey(exchange: Exchange) {
-  return Boolean(exchange.has_api_key || exchange.apiKey)
-}
 
 type Profile = 'careful' | 'balanced' | 'active'
 
@@ -379,7 +337,8 @@ function signalBiasInfo(bias: string | undefined) {
   return {
     label: 'Neutral',
     hint: 'Neutral bias',
-    classes: 'border-[rgba(26,24,19,0.14)] bg-nofx-bg-deeper text-nofx-text-muted',
+    classes:
+      'border-[rgba(26,24,19,0.14)] bg-nofx-bg-deeper text-nofx-text-muted',
     icon: Target,
   }
 }
@@ -1388,7 +1347,11 @@ export function StrategyStudioPage() {
       notify.success(
         successMessage ||
           (activateAfter
-            ? text(language, 'Strategy saved and activated', 'Strategy saved and activated')
+            ? text(
+                language,
+                'Strategy saved and activated',
+                'Strategy saved and activated'
+              )
             : text(language, 'Strategy saved', 'Strategy saved'))
       )
       await loadStrategies(selectedStrategy.id)
@@ -1441,143 +1404,48 @@ export function StrategyStudioPage() {
     return base
   }
 
-  const resolveOneClickModel = async () => {
-    let models = await api.getModelConfigs()
-    let model = pickTradingModel(models)
-    if (model) return model
-
-    const onboarding = await api.prepareBeginnerOnboarding()
-    models = await api.getModelConfigs()
-    model =
-      models.find(
-        (item) =>
-          item.id === onboarding.configured_model_id &&
-          item.enabled &&
-          modelHasCredential(item)
-      ) || pickTradingModel(models)
-
-    if (!model && onboarding.configured_model_id && onboarding.private_key) {
-      await api.updateModelConfigs({
-        models: {
-          [onboarding.configured_model_id]: {
-            enabled: true,
-            api_key: onboarding.private_key,
-            custom_api_url: '',
-            custom_model_name: onboarding.default_model,
-          },
-        },
-      })
-      models = await api.getModelConfigs()
-      model =
-        models.find(
-          (item) =>
-            item.id === onboarding.configured_model_id &&
-            item.enabled &&
-            modelHasCredential(item)
-        ) || pickTradingModel(models)
-    }
-
-    if (!model) {
-      throw new Error(
-        'No enabled AI model is ready. Create or fund the Claw402 wallet first.'
-      )
-    }
-
-    return model
-  }
-
-  const resolveOneClickExchange = async () => {
-    const exchanges = await api.getExchangeConfigs()
-    const exchange = pickTradingExchange(exchanges)
-    if (exchange) return exchange
-
-    const hyperliquid = exchanges.find(isHyperliquidExchange)
-    if (!hyperliquid) {
-      throw new Error(
-        'No Hyperliquid account is ready. Connect Hyperliquid and authorize the NOFX agent first.'
-      )
-    }
-    if (!hyperliquid.enabled) {
-      throw new Error('The Hyperliquid account is disabled. Enable it first.')
-    }
-    if (!modelHasExchangeKey(hyperliquid)) {
-      throw new Error(
-        'The Hyperliquid agent key is missing. Reconnect Hyperliquid and save the agent wallet.'
-      )
-    }
-    if (!hyperliquid.hyperliquidBuilderApproved) {
-      throw new Error(
-        'Hyperliquid builder authorization is not complete. Finish wallet authorization first.'
-      )
-    }
-    if (!hyperliquidWalletAddress(hyperliquid).trim()) {
-      throw new Error(
-        'The Hyperliquid wallet address is missing. Reconnect Hyperliquid first.'
-      )
-    }
-
-    throw new Error(
-      'No ready Hyperliquid account found. Check the wallet authorization.'
-    )
-  }
-
   const startUnifiedClaw402Agent = async () => {
     if (!selectedStrategy) return
-    const config = buildUnifiedClaw402Config()
-    const traderName = 'NOFX Autopilot'
 
     setSaving(true)
     try {
-      setEditingConfig(config)
-      setHasChanges(true)
-
-      await api.updateStrategy(selectedStrategy.id, {
-        name: selectedStrategy.name,
-        description:
-          selectedStrategy.description ||
-          'Autonomous market selection powered by Claw402.ai Signal Lab, liquidation structure, and raw candles.',
-        config,
+      // The shared launcher runs the server-side preflight (fresh wallet and
+      // exchange balances) BEFORE ensureStrategy, so a failed launch never
+      // mutates or activates the strategy as a side effect.
+      const outcome = await launchAutopilot({
+        scanIntervalMinutes: 15,
+        ensureStrategy: async () => {
+          const config = buildUnifiedClaw402Config()
+          setEditingConfig(config)
+          await api.updateStrategy(selectedStrategy.id, {
+            name: selectedStrategy.name,
+            description:
+              selectedStrategy.description ||
+              'Autonomous market selection powered by Claw402.ai Signal Lab, liquidation structure, and raw candles.',
+            config,
+          })
+          await api.activateStrategy(selectedStrategy.id)
+          return selectedStrategy.id
+        },
       })
-      await api.activateStrategy(selectedStrategy.id)
 
-      const [model, exchange] = await Promise.all([
-        resolveOneClickModel(),
-        resolveOneClickExchange(),
-      ])
-
-      const traderRequest = {
-        name: traderName,
-        ai_model_id: model.id,
-        exchange_id: exchange.id,
-        strategy_id: selectedStrategy.id,
-        scan_interval_minutes: 15,
-        is_cross_margin: true,
-        show_in_competition: true,
+      if (!outcome.ok) {
+        notify.error(outcome.message)
+        const setupTarget =
+          outcome.kind === 'error' ? null : outcome.setupTarget
+        if (setupTarget) {
+          navigate(`${ROUTES.traders}?setup=${setupTarget}`)
+        }
+        return
       }
 
-      const existingTraders = await api.getTraders(true)
-      const existingAutopilot = existingTraders.find(
-        (trader) => trader.trader_name === traderName
-      )
-      const autopilot = existingAutopilot
-        ? await api.updateTrader(existingAutopilot.trader_id, traderRequest)
-        : await api.createTrader(traderRequest)
-
-      if (autopilot.startup_warning) {
-        notify.warning(autopilot.startup_warning)
+      if (outcome.warning) {
+        notify.warning(outcome.warning)
       }
-
-      if (!autopilot.is_running) {
-        await api.startTrader(autopilot.trader_id)
-      }
-      notify.success(`${traderName} started`)
+      notify.success('NOFX Autopilot started')
       setHasChanges(false)
       await loadStrategies(selectedStrategy.id)
-      navigate(buildDashboardPath(autopilot.trader_id))
-    } catch (err) {
-      notify.error(
-        err instanceof Error ? err.message : 'Failed to launch NOFX Autopilot'
-      )
+      navigate(buildDashboardPath(outcome.traderId))
     } finally {
       setSaving(false)
     }
@@ -2381,7 +2249,11 @@ export function StrategyStudioPage() {
                   <div className="rounded-lg border border-[rgba(26,24,19,0.14)] bg-nofx-bg-lighter p-4">
                     <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-nofx-text">
                       <Shield className="h-4 w-4 text-nofx-success" />
-                      {text(language, 'Trading parameters', 'Trading parameters')}
+                      {text(
+                        language,
+                        'Trading parameters',
+                        'Trading parameters'
+                      )}
                     </div>
                     <div className="grid gap-4 sm:grid-cols-3">
                       <label className="space-y-2">
@@ -2424,7 +2296,11 @@ export function StrategyStudioPage() {
                       </label>
                       <label className="space-y-2">
                         <span className="text-xs text-nofx-text-muted">
-                          {text(language, 'Entry confidence', 'Entry confidence')}
+                          {text(
+                            language,
+                            'Entry confidence',
+                            'Entry confidence'
+                          )}
                         </span>
                         <select
                           value={risk.min_confidence}
