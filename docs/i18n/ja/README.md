@@ -1,22 +1,14 @@
-<p align="center"><strong><a href="https://vergex.trade">vergex.trade</a> によるバックアップ</strong></p>
-
-<h1 align="center">NOFX</h1>
+<p align="center"><strong><a href="https://vergex.trade">vergex.trade</a> の支援を受けています</strong></p>
 
 <p align="center">
-  <strong>グローバル市場向け AI トレーディングターミナル。</strong><br/>
-  <strong>米国株、コモディティ、FX、暗号資産のリサーチ、戦略生成、執行、モニタリング。</strong>
+  <img src="../../assets/nofx-banner.svg" alt="NOFX — AI トレーディングターミナル" width="100%"/>
 </p>
 
 <p align="center">
-  <a href="https://github.com/NoFxAiOS/nofx/stargazers"><img src="https://img.shields.io/github/stars/NoFxAiOS/nofx?style=for-the-badge" alt="Stars"></a>
-  <a href="https://github.com/NoFxAiOS/nofx/releases"><img src="https://img.shields.io/github/v/release/NoFxAiOS/nofx?style=for-the-badge" alt="Release"></a>
-  <a href="https://github.com/NoFxAiOS/nofx/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-AGPL--3.0-blue.svg?style=for-the-badge" alt="License"></a>
-  <a href="https://t.me/nofx_dev_community"><img src="https://img.shields.io/badge/Telegram-Community-blue?style=for-the-badge&logo=telegram" alt="Telegram"></a>
-</p>
-
-<p align="center">
-  <a href="https://golang.org/"><img src="https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go" alt="Go"></a>
-  <a href="https://reactjs.org/"><img src="https://img.shields.io/badge/React-18+-61DAFB?style=flat&logo=react" alt="React"></a>
+  <a href="https://github.com/NoFxAiOS/nofx/stargazers"><img src="https://img.shields.io/github/stars/NoFxAiOS/nofx?style=flat-square&labelColor=1A1813&color=E0483B" alt="Stars"></a>
+  <a href="https://github.com/NoFxAiOS/nofx/releases"><img src="https://img.shields.io/github/v/release/NoFxAiOS/nofx?style=flat-square&labelColor=1A1813&color=E0483B" alt="Release"></a>
+  <a href="https://github.com/NoFxAiOS/nofx/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-E0483B?style=flat-square&labelColor=1A1813" alt="License"></a>
+  <a href="https://t.me/nofx_dev_community"><img src="https://img.shields.io/badge/telegram-community-E0483B?style=flat-square&labelColor=1A1813&logo=telegram&logoColor=white" alt="Telegram"></a>
 </p>
 
 <p align="center">
@@ -29,89 +21,83 @@
   <a href="../vi/README.md">Tiếng Việt</a>
 </p>
 
----
+<br/>
 
-NOFX は、マーケットリサーチ、戦略開発、取引執行、ポートフォリオ監視をひとつのワークスペースで行うためのオープンソース AI トレーディングターミナルです。
+NOFX は、戦略そのものが言語モデルであるオープンソースのトレーディングターミナルです。各トレーダーは、市場構造を読み取り、判断し、執行し、その根拠を記録するという連続的なループを回し続けます。その間、Go ランタイムがすべての注文を、モデルには上書きできないハードなリスク制限内に抑え込みます。
 
-対象は米国株、コモディティ契約、FX ペア、デジタル資産などの高流動性グローバル市場です。AI レイヤーは取引意図をウォッチリスト、シグナル、戦略ロジック、リスク制御、執行ワークフローへ変換します。
+トレーダーの構成は自由です。任意のモデル、9 つの取引所のいずれか、任意の戦略を組み合わせられます。複数のトレーダーを並行して走らせ、実現リターンに基づく公開リーダーボードで比較できます。すべては自分のマシン上で動作し、取引所の認証情報は保存時に暗号化され、外部に送信されることはありません。
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bash
 ```
 
-**http://127.0.0.1:3000** を開きます。
+ターミナルは `http://127.0.0.1:3000` で開きます。
 
----
+**初回起動**
 
-## 取引所登録
+1. 登録します — 最初に作成したアカウントがこのインスタンスのオーナーになります。
+2. ガイド付きの起動手順に従います。自動作成される AI 手数料ウォレットに **$1+ USDC**（Base ネットワーク）を入金し、続いて Hyperliquid を接続して取引資金として **$12+ USDC** を入金します。
+3. **Autopilot** を開始します。AI は数分ごとに市場をスキャンして自律的に取引し、すべての判断はその場でダッシュボードに表示されます。ワンクリックでいつでも停止できます。
 
-以下のリンクから、暗号資産および対応する米国株、FX、コモディティデリバティブ市場向けの取引口座を開設できます。これらは NOFX のパートナープログラム経由で、手数料割引または紹介特典が適用される場合があります。
+<br/>
 
-| 取引所 | 状態 | 手数料割引付き登録 |
-| :--- | :---: | :--- |
-| <img src="../../../web/public/exchange-icons/binance.jpg" width="20" height="20" style="vertical-align: middle;"/> **Binance** | ✅ | [登録](https://www.binance.com/join?ref=NOFXENG) |
-| <img src="../../../web/public/exchange-icons/bybit.png" width="20" height="20" style="vertical-align: middle;"/> **Bybit** | ✅ | [登録](https://partner.bybit.com/b/83856) |
-| <img src="../../../web/public/exchange-icons/okx.svg" width="20" height="20" style="vertical-align: middle;"/> **OKX** | ✅ | [登録](https://www.okx.com/join/1865360) |
-| <img src="../../../web/public/exchange-icons/hyperliquid.png" width="20" height="20" style="vertical-align: middle;"/> **Hyperliquid** | ✅ | [登録](https://app.hyperliquid.xyz/join/AITRADING) |
-| <img src="../../../web/public/exchange-icons/bitget.svg" width="20" height="20" style="vertical-align: middle;"/> **Bitget** | ✅ | [登録](https://www.bitget.com/referral/register?from=referral&clacCode=c8a43172) |
-| <img src="../../../web/public/exchange-icons/kucoin.svg" width="20" height="20" style="vertical-align: middle;"/> **KuCoin** | ✅ | [登録](https://www.kucoin.com/r/broker/CXEV7XKK) |
-| <img src="../../../web/public/exchange-icons/gate.svg" width="20" height="20" style="vertical-align: middle;"/> **Gate** | ✅ | [登録](https://www.gatenode.xyz/share/VQBGUAxY) |
-| <img src="../../../web/public/exchange-icons/aster.svg" width="20" height="20" style="vertical-align: middle;"/> **Aster** | ✅ | [登録](https://www.asterdex.com/en/referral/fdfc0e) |
-| <img src="../../../web/public/exchange-icons/lighter.png" width="20" height="20" style="vertical-align: middle;"/> **Lighter** | ✅ | [登録](https://app.lighter.xyz/?referral=68151432) |
+## 取引所の登録
 
----
+NOFX は無料のオープンソースソフトウェアです。以下のパートナーリンク経由で口座を開設すると、取引手数料の割引が受けられるうえ、継続的な開発の資金にもなります。
 
-## クイックデモ
+| 取引所                                                                                                                      | 状態 | 手数料割引付きで登録                                                          |
+| :---------------------------------------------------------------------------------------------------------------------------- | :----: | :---------------------------------------------------------------------------------- |
+| <img src="../../../web/public/exchange-icons/binance.jpg" width="20" height="20" style="vertical-align: middle;"/> **Binance**       |   ✅   | [登録](https://www.binance.com/join?ref=NOFXENG)                                |
+| <img src="../../../web/public/exchange-icons/bybit.png" width="20" height="20" style="vertical-align: middle;"/> **Bybit**           |   ✅   | [登録](https://partner.bybit.com/b/83856)                                       |
+| <img src="../../../web/public/exchange-icons/okx.svg" width="20" height="20" style="vertical-align: middle;"/> **OKX**               |   ✅   | [登録](https://www.okx.com/join/1865360)                                        |
+| <img src="../../../web/public/exchange-icons/hyperliquid.png" width="20" height="20" style="vertical-align: middle;"/> **Hyperliquid** |   ✅   | [登録](https://app.hyperliquid.xyz/join/AITRADING)                              |
+| <img src="../../../web/public/exchange-icons/bitget.svg" width="20" height="20" style="vertical-align: middle;"/> **Bitget**         |   ✅   | [登録](https://www.bitget.com/referral/register?from=referral&clacCode=c8a43172) |
+| <img src="../../../web/public/exchange-icons/kucoin.svg" width="20" height="20" style="vertical-align: middle;"/> **KuCoin**         |   ✅   | [登録](https://www.kucoin.com/r/broker/CXEV7XKK)                                |
+| <img src="../../../web/public/exchange-icons/gate.svg" width="20" height="20" style="vertical-align: middle;"/> **Gate**             |   ✅   | [登録](https://www.gatenode.xyz/share/VQBGUAxY)                                 |
+| <img src="../../../web/public/exchange-icons/aster.svg" width="20" height="20" style="vertical-align: middle;"/> **Aster**           |   ✅   | [登録](https://www.asterdex.com/en/referral/fdfc0e)                             |
+| <img src="../../../web/public/exchange-icons/lighter.png" width="20" height="20" style="vertical-align: middle;"/> **Lighter**       |   ✅   | [登録](https://app.lighter.xyz/?referral=68151432)                              |
+
+<br/>
+
+## デモ
 
 https://github.com/user-attachments/assets/3310f495-14c5-4586-a1cc-3d32e44aa505
 
----
+<br/>
 
-## 市場
+## モデルは提案する。ランタイムが決める。
 
-**米国株 · コモディティ · FX · 暗号資産**
+判断は、[Claw402.ai](https://claw402.ai)・Vergex のデータスタックを読み取る言語モデルから生まれます。全市場を方向バイアスとシグナル強度でランク付けするライブシグナルボード、銘柄ごとの Signal Lab ディープシグナル、群衆の「燃料」と「壁」の位置を映すコストベース・清算ヒートマップ、リアルタイムのネットフロー — これらを生のローソク足とトレーダー自身のライブ実績と突き合わせます。ただし、執行はそうではありません。
 
-NOFX は単一取引所の画面ではなく、マルチアセットのリサーチ、戦略構築、執行、監視ワークフローを中心に設計されています。
+すべての注文は、モデルの手が届かない、コードで強制されるリスク制限を通過します。
 
----
+|                          |                                                                                    |
+| :----------------------- | :--------------------------------------------------------------------------------- |
+| ポジション制限          | 同時ポジション数の上限、想定元本は口座資産に対する比率で制限、1 シンボルにつき 1 ポジション |
+| レバレッジ制限          | モデルの要求とは無関係に、注文サイズの算出時にハードキャップを適用     |
+| 取引所側の保護 | すべてのエントリー直後に、ストップロスとテイクプロフィットを取引所側に設置     |
+| ドローダウン自動クローズ      | ピークから利益を大きく吐き出したポジションは自動的にクローズ            |
+| 取引スロットリング         | 最低保有時間、シンボルごとの再エントリークールダウン、サイクルごと・1 時間ごとのエントリー回数制限 |
+| セーフモード                | モデルの失敗が繰り返された場合、モデルが回復するまで新規エントリーをブロック                 |
+| 起動前チェック         | トレーダーの開始前に、モデルアクセス、ウォレット資金、戦略、取引所残高を検証 |
 
-## AI モデルアクセス
+各判断は、モデルの推論全文とともに保存されます。記録の残らないポジションは存在しません。
 
-NOFX は AI 推論を [Claw402](https://claw402.ai) 経由で自動ルーティングします。ユーザーはモデルプロバイダーの設定、API キー管理、個別 AI アカウントの維持を行う必要がありません。ターミナルは Claw402 の従量課金インフラを使って対応モデルへオンデマンドにアクセスし、公式割引チャネルを通じてルーティングします。
+<br/>
 
-| プロバイダー | アクセス |
+## ターミナル
+
+| | |
 | :--- | :--- |
-| **Claw402** | [公式割引で従量課金 AI モデルにアクセス](https://claw402.ai) |
-
----
-
-## 機能
-
-| 機能 | 説明 |
-| :--- | :--- |
-| **AI トレーディングターミナル** | 米国株、コモディティ、FX、暗号資産向けの統合ワークスペース |
-| **AI モデルアクセス** | Claw402 経由で対応プロバイダーへ自動接続 |
-| **取引所接続** | Binance、Bybit、OKX、Hyperliquid、Bitget、KuCoin、Gate、Aster、Lighter |
-| **Strategy Studio** | 市場ユニバース、インジケーター、リスク制御、戦略ロジック |
-| **モデル競争** | AI トレーダーのライブ成績とランキングを比較 |
-| **Telegram Agent** | チャットからトレーディングアシスタントを操作・監視 |
-| **ポートフォリオダッシュボード** | ポジション、損益、執行履歴、モデル判断ログ |
-
----
-
-## スクリーンショット
+| **Autopilot** | ガイド付きの起動フロー：資金投入、接続、入金、開始 — 全工程をサーバー側の事前チェックが支えます |
+| **Strategy Studio** | スタイルプリセット、コインユニバース、インジケーター、レバレッジ、エントリー確信度、カスタムプロンプト |
+| **Competition** | 実現リターンでランク付けされる公開リーダーボード。各エントリーには使用モデルが明記されます |
+| **Dashboard** | ライブのポジション、注文、統計、そしてすべての判断の背後にある推論 |
 
 <details>
-<summary><b>設定ページ</b></summary>
+<summary>スクリーンショット</summary>
 
-|                         設定                         |                         トレーダー一覧                         |
-| :----------------------------------------------------: | :----------------------------------------------------------: |
-| <img src="../../../screenshots/config-ai-exchanges.png" width="400"/> | <img src="../../../screenshots/config-traders-list.png" width="400"/> |
-
-</details>
-
-<details>
-<summary><b>ダッシュボード</b></summary>
+<br/>
 
 |                        概要                         |                          マーケットチャート                           |
 | :-----------------------------------------------------: | :-------------------------------------------------------------: |
@@ -121,131 +107,51 @@ NOFX は AI 推論を [Claw402](https://claw402.ai) 経由で自動ルーティ�
 | :--------------------------------------------------------------: | :-----------------------------------------------------------------: |
 | <img src="../../../screenshots/dashboard-trading-stats.png" width="400"/> | <img src="../../../screenshots/dashboard-position-history.png" width="400"/> |
 
-|                          ポジション                           |                    トレーダー詳細                     |
-| :----------------------------------------------------------: | :---------------------------------------------------: |
-| <img src="../../../screenshots/dashboard-positions.png" width="400"/> | <img src="../../../screenshots/details-page.png" width="400"/> |
-
-</details>
-
-<details>
-<summary><b>Strategy Studio</b></summary>
-
 |                     戦略エディタ                      |                      インジケーター設定                       |
 | :------------------------------------------------------: | :----------------------------------------------------------: |
 | <img src="../../../screenshots/strategy-studio.png" width="400"/> | <img src="../../../screenshots/strategy-indicators.png" width="400"/> |
 
-</details>
-
-<details>
-<summary><b>コンペティション</b></summary>
-
-|                     コンペティションモード                      |
-| :-------------------------------------------------------: |
-| <img src="../../../screenshots/competition-page.png" width="400"/> |
+|                     コンペティション                           |                    設定                              |
+| :-------------------------------------------------------: | :-----------------------------------------------------------: |
+| <img src="../../../screenshots/competition-page.png" width="400"/> | <img src="../../../screenshots/config-ai-exchanges.png" width="400"/>  |
 
 </details>
 
----
+<br/>
 
-## インストール
+## モデル
 
-### Linux / macOS
+自分の API キーで 8 つのプロバイダーを利用できます — DeepSeek、OpenAI、Claude、Qwen、Gemini、Grok、Kimi、MiniMax。カスタムエンドポイントとカスタムモデル名にも対応しています。
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bash
-```
+あるいは、キーを一切使わない方法もあります。[Claw402](https://claw402.ai) は x402 プロトコル上で、モデルの利用量を呼び出しごとに USDC で課金します。Base 上のウォレットひとつが、すべての API キーの代わりになります。
 
-### Railway（クラウド）
+| プロバイダー | アクセス |
+| :------- | :----- |
+| **Claw402** | [公式割引付きの従量課金 AI モデル](https://claw402.ai) |
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/nofx?referralCode=nofx)
+## マーケット
 
-### Docker
+9 つの取引所すべてで暗号資産の無期限先物を取引できます。Hyperliquid では、同じランタイムが暗号資産に加えて、トークン化された米国株、コモディティ、株価指数、FX、プレ IPO 無期限先物 — TSLA、NVDA、GOLD、SPX、EUR、OPENAI — も取引します。
 
-```bash
-curl -O https://raw.githubusercontent.com/NoFxAiOS/nofx/main/docker-compose.prod.yml
-docker compose -f docker-compose.prod.yml up -d
-```
-
-### Windows
-
-[Docker Desktop](https://www.docker.com/products/docker-desktop/) をインストールしてから：
-
-```powershell
-curl -o docker-compose.prod.yml https://raw.githubusercontent.com/NoFxAiOS/nofx/main/docker-compose.prod.yml
-docker compose -f docker-compose.prod.yml up -d
-```
-
-### ソースからビルド
-
-```bash
-# Prerequisites: Go 1.21+, Node.js 18+, TA-Lib
-# macOS: brew install ta-lib
-# Ubuntu: sudo apt-get install libta-lib0-dev
-
-git clone https://github.com/NoFxAiOS/nofx.git && cd nofx
-go build -o nofx && ./nofx
-cd web && npm install && npm run dev
-```
-
-### アップデート
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bash
-```
-
----
-
-## セットアップ
-
-**初心者モード**：ガイド付き onboarding により、モデルアクセス、取引所接続、戦略設定、初回デプロイまで進められます。
-
-**上級モード**：
-
-1. AI モデルアクセスを設定
-2. 取引所の認証情報を接続
-3. 戦略を構築またはインポート
-4. AI トレーダープロファイルを作成
-5. ダッシュボードから起動、監視、改善
-
-すべての設定は Web UI **http://127.0.0.1:3000** から行えます。
-
----
-
-## サーバーへのデプロイ
-
-**HTTP デプロイ：**
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bash
-# http://YOUR_IP:3000 でアクセス
-```
-
-**Cloudflare 経由の HTTPS：**
-
-1. [Cloudflare](https://dash.cloudflare.com)（無料プラン）にドメインを追加
-2. A レコードをサーバー IP に設定（Proxied）
-3. SSL/TLS を Flexible に設定
-4. `.env` に `TRANSPORT_ENCRYPTION=true` を設定
-
----
+<br/>
 
 ## アーキテクチャ
 
 ```
-                              NOFX
     ┌─────────────────────────────────────────────────┐
     │                 Trading Terminal                 │
-    │        React + TypeScript + TradingView          │
-    │      US Stocks · Commodities · Forex · Crypto    │
+    │        React · TypeScript · TradingView          │
+    │   Dashboard · Strategy Studio · Competition      │
     ├─────────────────────────────────────────────────┤
     │                  API Server (Go)                  │
+    │      JWT auth · encrypted credential store        │
     ├──────────────┬──────────────┬───────────────────┤
-    │   Strategy    │   Telegram   │   Trader Runtime  │
-    │    Engine     │    Agent     │   Risk Controls   │
+    │   Strategy    │  Autopilot   │   Trader Runtime  │
+    │    Engine     │  Preflight   │    Risk Engine    │
     ├──────────────┴──────────────┴───────────────────┤
     │                 AI Model Layer                    │
-    │    Unified provider access through Claw402        │
-    │    Model routing · payment · execution support    │
+    │  DeepSeek · OpenAI · Claude · Qwen · Gemini      │
+    │  Grok · Kimi · MiniMax · Claw402 (x402 USDC)     │
     ├─────────────────────────────────────────────────┤
     │              Exchange Connectivity                │
     │ Binance · Bybit · OKX · Hyperliquid · Bitget     │
@@ -253,50 +159,99 @@ curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bas
     └─────────────────────────────────────────────────┘
 ```
 
----
+<br/>
+
+## インストール
+
+**Linux / macOS**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bash
+```
+
+**Railway**
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/nofx?referralCode=nofx)
+
+**Docker**
+
+```bash
+curl -O https://raw.githubusercontent.com/NoFxAiOS/nofx/main/docker-compose.prod.yml
+docker compose -f docker-compose.prod.yml up -d
+```
+
+**Windows** — [Docker Desktop](https://www.docker.com/products/docker-desktop/) をインストールしてから、次を実行します。
+
+```powershell
+curl -o docker-compose.prod.yml https://raw.githubusercontent.com/NoFxAiOS/nofx/main/docker-compose.prod.yml
+docker compose -f docker-compose.prod.yml up -d
+```
+
+**ソースからビルド** — Go 1.21+、Node.js 18+ が必要です。
+
+```bash
+git clone https://github.com/NoFxAiOS/nofx.git && cd nofx
+go build -o nofx && ./nofx            # backend
+cd web && npm install && npm run dev  # frontend, in a second terminal
+```
+
+**アップデート** — インストールスクリプトを再実行すると、その場でアップグレードされます。
+
+<details>
+<summary>サーバーへのデプロイ</summary>
+
+<br/>
+
+**HTTP**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bash
+# http://YOUR_IP:3000
+```
+
+**Cloudflare 経由の HTTPS**
+
+1. [Cloudflare](https://dash.cloudflare.com)（無料プラン）にドメインを追加
+2. A レコード → サーバー IP（Proxied を有効化）
+3. SSL/TLS → Flexible
+4. `.env` に `TRANSPORT_ENCRYPTION=true` を設定
+
+</details>
+
+<br/>
 
 ## ドキュメント
 
-| | |
-| :--- | :--- |
-| [アーキテクチャ](../../architecture/README.md) | システム設計とモジュール索引 |
+|                                                         |                                       |
+| :------------------------------------------------------ | :------------------------------------ |
+| [はじめに](../../getting-started/README.md)       | デプロイと取引所 API のガイド    |
+| [アーキテクチャ](../../architecture/README.md)             | システム設計とモジュール索引        |
 | [戦略モジュール](../../architecture/STRATEGY_MODULE.md) | 銘柄選択、AI プロンプト、執行 |
-| [FAQ](../../faq/README.md) | よくある質問 |
-| [はじめに](../../getting-started/README.md) | デプロイガイド |
+| [FAQ](../../guides/faq.en.md)                            | よくある質問                      |
+| [トラブルシューティング](../../guides/TROUBLESHOOTING.md)       | よくある問題の診断              |
 
----
+## コミュニティ
 
-## 貢献
+[Telegram](https://t.me/nofx_dev_community) · [Twitter/X](https://x.com/vergex_ai) · [Issues](https://github.com/NoFxAiOS/nofx/issues) · [vergex.trade](https://vergex.trade) · [ライブダッシュボード](https://vergex.trade/explore)
 
-[貢献ガイド](../../../CONTRIBUTING.md)、[行動規範](../../../CODE_OF_CONDUCT.md)、[セキュリティポリシー](../../../SECURITY.md) を参照してください。
+## コントリビューション
 
-### 貢献者プログラム
+コード、ドキュメント、翻訳、バグ報告のいずれも歓迎します。詳細は[貢献ガイド](../../../CONTRIBUTING.md)、[行動規範](../../../CODE_OF_CONDUCT.md)、[セキュリティポリシー](../../../SECURITY.md)をご覧ください。
 
-NOFX は有意義な貢献を記録し、エコシステムの成長に応じて貢献者へ還元する予定です。優先 Issue は高い報酬ウェイトを持ちます。
+NOFX は有意義な貢献を記録しており、エコシステムの成長に応じて貢献者に還元していく予定です。優先度の高い Issue にはより高いウェイトが付きます。
 
-| Contribution | Weight |
-| :--- | :---: |
-| Pinned Issue PRs | ★★★★★★ |
-| Code (Merged PRs) | ★★★★★ |
-| Bug Fixes | ★★★★ |
-| Feature Ideas | ★★★ |
-| Bug Reports | ★★ |
-| Documentation | ★★ |
+| 貢献の種類      | ウェイト |
+| :---------------- | :----: |
+| ピン留め Issue の PR  | ★★★★★★ |
+| コード（マージ済み PR） | ★★★★★  |
+| バグ修正         |  ★★★★  |
+| 機能アイデア     |  ★★★   |
+| バグ報告       |   ★★   |
+| ドキュメント     |   ★★   |
 
----
-
-## リンク
-
-| | |
-| :--- | :--- |
-| Website | [vergex.trade](https://vergex.trade) |
-| Dashboard | [vergex.trade/explore](https://vergex.trade/explore) |
-| Telegram | [nofx_dev_community](https://t.me/nofx_dev_community) |
-| Twitter | [@vergex_ai](https://x.com/vergex_ai) |
-
-> **リスク警告**：自動売買には大きなリスクがあります。適切なポジションサイズを守り、各取引所の仕組みを理解し、失ってもよい資金だけを使用してください。
-
----
+<a href="https://github.com/NoFxAiOS/nofx/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=NoFxAiOS/nofx" alt="Contributors"/>
+</a>
 
 ## スポンサー
 
@@ -314,8 +269,14 @@ NOFX は有意義な貢献を記録し、エコシステムの成長に応じて
 
 [スポンサーになる](https://github.com/sponsors/NoFxAiOS)
 
-## License
+<br/>
+
+NOFX が役に立ったら、スターを付けていただけると、他のトレーダーがこのプロジェクトを見つけやすくなります。
+
+[![Star History Chart](https://api.star-history.com/svg?repos=NoFxAiOS/nofx&type=Date)](https://star-history.com/#NoFxAiOS/nofx&Date)
+
+## ライセンス
 
 [AGPL-3.0](../../../LICENSE)
 
-[![Star History Chart](https://api.star-history.com/svg?repos=NoFxAiOS/nofx&type=Date)](https://star-history.com/#NoFxAiOS/nofx&Date)
+<sub>自動売買には大きなリスクが伴います。AI 駆動の戦略は実験的なものであり、損失を出す可能性があります。適切なポジションサイズを守り、各取引所の仕組みを理解し、失っても差し支えのない資金以外では決して取引しないでください。詳細は[免責事項](../../../DISCLAIMER.md)をご覧ください。</sub>

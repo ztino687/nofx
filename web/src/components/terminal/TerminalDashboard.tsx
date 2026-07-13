@@ -17,6 +17,7 @@ import { KlineChart } from './KlineChart'
 import { ExecutionLog } from './ExecutionLog'
 import { SignalMatrix } from './SignalMatrix'
 import { RiskRadar } from './RiskRadar'
+import { EdgeProfile } from './EdgeProfile'
 import { useDemoEngine } from '../../lib/demo/useDemoEngine'
 
 // crypto majors trade on the Hyperliquid main dex (no hip3 cost/liq heatmap);
@@ -51,6 +52,12 @@ function fmtUsd(n: number | undefined, signed = false): string {
 function fmtPct(n: number | undefined): string {
   if (n == null || Number.isNaN(n)) return '—'
   return `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`
+}
+/** Price with magnitude-aware precision: 64,416 · 184.2 · 2.3775 · 0.0067 */
+function fmtPx(n: number | undefined): string {
+  if (n == null || Number.isNaN(n) || n === 0) return '—'
+  const dp = n >= 1000 ? 0 : n >= 100 ? 1 : n >= 1 ? 2 : 4
+  return n.toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp })
 }
 function baseLabel(raw?: string): string {
   if (!raw) return ''
@@ -321,6 +328,16 @@ export function TerminalDashboard({
             </span>
           </div>
         )}
+        {/* first-run reassurance — a fresh autopilot looks idle for its first
+            minute (the AI is reading the market); tell newcomers what to expect */}
+        {!on && status?.is_running && (status.call_count ?? 0) <= 1 && !status.safe_mode && (
+          <div className="tm-mono" style={{ display: 'flex', gap: 10, alignItems: 'center', margin: '8px 14px 0', padding: '8px 12px', fontSize: 11, border: '1px solid var(--tm-up)', color: 'var(--tm-ink)', background: 'rgba(40,140,80,0.06)', flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 600, color: 'var(--tm-up)' }}>Your AI is live.</span>
+            <span style={{ color: 'var(--tm-ink-2)' }}>
+              It reads the whole market before acting — the first decision usually lands within a minute or two and will appear in the Execution Log below. You can stop it anytime from the Config page.
+            </span>
+          </div>
+        )}
         {/* config / identity strip — first row, flows directly under the global nav */}
         <div className="tm-mono" style={{ display: 'flex', gap: 16, padding: '6px 14px', fontSize: 11, color: 'var(--tm-ink-2)', flexWrap: 'wrap' }}>
           <span style={{ fontWeight: 500 }}>{selectedTrader?.trader_name ?? 'NOFX'}</span>
@@ -489,8 +506,9 @@ export function TerminalDashboard({
                 <thead>
                   <tr className="tm-sc" style={{ fontSize: 9 }}>
                     <td style={{ padding: '0 0 3px' }}>symbol</td>
-                    <td style={{ padding: '0 0 3px' }}>side</td>
-                    <td style={{ padding: '0 0 3px', textAlign: 'right' }}>lev</td>
+                    <td style={{ padding: '0 0 3px' }}>side·lev</td>
+                    <td style={{ padding: '0 0 3px', textAlign: 'right' }}>entry</td>
+                    <td style={{ padding: '0 0 3px', textAlign: 'right' }}>size</td>
                     <td style={{ padding: '0 0 3px', textAlign: 'right' }}>PnL</td>
                     <td style={{ padding: '0 0 3px', textAlign: 'right' }}>return%</td>
                   </tr>
@@ -499,11 +517,13 @@ export function TerminalDashboard({
                   {positions.map((p, i) => {
                     const long = /long|buy/i.test(p.side)
                     const win = (p.unrealized_pnl ?? 0) >= 0
+                    const notional = Math.abs(p.quantity ?? 0) * (p.mark_price || p.entry_price || 0)
                     return (
                       <tr key={`${p.symbol}-${i}`} style={{ borderTop: '1px solid var(--tm-hair)' }}>
                         <td style={{ padding: '5px 0', fontWeight: 500 }}>{baseLabel(p.symbol)}</td>
-                        <td style={{ padding: '5px 0' }} className={long ? 'tm-up' : 'tm-dn'}>{long ? 'long' : 'short'}</td>
-                        <td style={{ padding: '5px 0', textAlign: 'right', color: 'var(--tm-muted)' }}>{p.leverage}×</td>
+                        <td style={{ padding: '5px 0' }} className={long ? 'tm-up' : 'tm-dn'}>{long ? 'long' : 'short'} <span style={{ color: 'var(--tm-muted)' }}>{p.leverage}×</span></td>
+                        <td style={{ padding: '5px 0', textAlign: 'right', color: 'var(--tm-ink-2)' }}>{fmtPx(p.entry_price)}</td>
+                        <td style={{ padding: '5px 0', textAlign: 'right', color: 'var(--tm-ink-2)' }}>{fmtUsd(notional)}</td>
                         <td style={{ padding: '5px 0', textAlign: 'right' }} className={win ? 'tm-up' : 'tm-dn'}>{fmtUsd(p.unrealized_pnl, true)}</td>
                         <td style={{ padding: '5px 0', textAlign: 'right' }} className={win ? 'tm-up' : 'tm-dn'}>{(p.unrealized_pnl_pct ?? 0).toFixed(2)}%</td>
                       </tr>
@@ -540,8 +560,8 @@ export function TerminalDashboard({
         </div>
         <div className="tm-rule" />
 
-        {/* market net inflow (Vergex) · by-symbol history — balanced two-column footer */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.5fr) minmax(0,1fr)' }}>
+        {/* market net inflow (Vergex) · by-symbol history · edge profile — footer */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.2fr) minmax(0,0.9fr) minmax(0,0.9fr)' }}>
           <div style={{ ...sc, borderRight: cellBorder }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 8 }}>
               <span className="tm-px" style={{ fontSize: 12 }}>Market net inflow</span>
@@ -550,7 +570,7 @@ export function TerminalDashboard({
             </div>
             <FlowMarkets items={flowItems} window={flow?.data?.window} />
           </div>
-          <div style={sc}>
+          <div style={{ ...sc, borderRight: cellBorder }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
               <span className="tm-px" style={{ fontSize: 11 }}>By symbol</span>
               <span className="tm-sc">By-symbol history · trades/win/pnl</span>
@@ -567,6 +587,13 @@ export function TerminalDashboard({
                 </div>
               </div>
             )) : <div className="tm-sc">No symbol history.</div>}
+          </div>
+          <div style={sc}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
+              <span className="tm-px" style={{ fontSize: 11 }}>Edge profile</span>
+              <span className="tm-sc">Net by hold time &amp; side · after fees</span>
+            </div>
+            <EdgeProfile positions={history?.positions} />
           </div>
         </div>
       </div>

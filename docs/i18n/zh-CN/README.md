@@ -1,22 +1,14 @@
 <p align="center"><strong>由 <a href="https://vergex.trade">vergex.trade</a> 支持</strong></p>
 
-<h1 align="center">NOFX</h1>
-
 <p align="center">
-  <strong>面向全球市场的 AI 交易终端。</strong><br/>
-  <strong>覆盖美股、大宗商品、外汇与加密市场的研究、策略生成、执行与监控。</strong>
+  <img src="../../assets/nofx-banner.svg" alt="NOFX — AI trading terminal" width="100%"/>
 </p>
 
 <p align="center">
-  <a href="https://github.com/NoFxAiOS/nofx/stargazers"><img src="https://img.shields.io/github/stars/NoFxAiOS/nofx?style=for-the-badge" alt="Stars"></a>
-  <a href="https://github.com/NoFxAiOS/nofx/releases"><img src="https://img.shields.io/github/v/release/NoFxAiOS/nofx?style=for-the-badge" alt="Release"></a>
-  <a href="https://github.com/NoFxAiOS/nofx/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-AGPL--3.0-blue.svg?style=for-the-badge" alt="License"></a>
-  <a href="https://t.me/nofx_dev_community"><img src="https://img.shields.io/badge/Telegram-Community-blue?style=for-the-badge&logo=telegram" alt="Telegram"></a>
-</p>
-
-<p align="center">
-  <a href="https://golang.org/"><img src="https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go" alt="Go"></a>
-  <a href="https://reactjs.org/"><img src="https://img.shields.io/badge/React-18+-61DAFB?style=flat&logo=react" alt="React"></a>
+  <a href="https://github.com/NoFxAiOS/nofx/stargazers"><img src="https://img.shields.io/github/stars/NoFxAiOS/nofx?style=flat-square&labelColor=1A1813&color=E0483B" alt="Stars"></a>
+  <a href="https://github.com/NoFxAiOS/nofx/releases"><img src="https://img.shields.io/github/v/release/NoFxAiOS/nofx?style=flat-square&labelColor=1A1813&color=E0483B" alt="Release"></a>
+  <a href="https://github.com/NoFxAiOS/nofx/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-E0483B?style=flat-square&labelColor=1A1813" alt="License"></a>
+  <a href="https://t.me/nofx_dev_community"><img src="https://img.shields.io/badge/telegram-community-E0483B?style=flat-square&labelColor=1A1813&logo=telegram&logoColor=white" alt="Telegram"></a>
 </p>
 
 <p align="center">
@@ -29,91 +21,83 @@
   <a href="../vi/README.md">Tiếng Việt</a>
 </p>
 
-> **语言声明：** 本中文版本文档仅为方便海外华人社区阅读而提供，不代表本软件面向中国大陆、香港、澳门或台湾地区用户开放。如您位于上述地区，请勿使用本软件。
+<br/>
 
----
+NOFX 是一个开源交易终端，策略本身就是一个语言模型。每个交易员运行一个持续循环——读取市场结构、做出决策、执行、记录推理过程——同时由 Go 运行时把每一笔订单钳制在模型无法越过的硬性风控限制之内。
 
-NOFX 是一个开源 AI 交易终端，面向需要统一工作区完成市场研究、策略开发、交易执行与组合监控的活跃交易者。
-
-产品围绕全球高流动性市场设计：美股、大宗商品合约、外汇货币对与数字资产。AI 层将交易意图转化为观察列表、信号、策略逻辑、风控约束与执行工作流。
+交易员可以自由组合：任意模型、九家交易所任选、任意策略。多个交易员并行运行，在公开排行榜上按已实现收益一较高下。一切都在你自己的机器上运行；交易所凭证加密存储，绝不外传。
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bash
 ```
 
-打开 **http://127.0.0.1:3000**。
+终端会在 `http://127.0.0.1:3000` 打开。
 
----
+**首次运行**
+
+1. 注册——第一个账户即成为该实例的所有者。
+2. 按引导式启动流程操作：向系统为你创建的 AI 费用钱包存入 **$1+ USDC**（Base 网络），然后连接 Hyperliquid 并存入 **$12+ USDC** 作为交易资金。
+3. 启动 **Autopilot**。AI 每隔几分钟扫描一次市场并自主交易；每一个决策都会实时出现在仪表板上。随时可以一键停止。
+
+<br/>
 
 ## 注册交易所
 
-通过以下链接开通交易账户，可交易加密资产以及平台支持的美股、外汇和大宗商品衍生品市场。这些链接来自 NOFX 合作伙伴计划，可能包含手续费折扣或推荐权益。
+NOFX 免费且开源。通过下方合作伙伴链接开户可享受更低的交易手续费，同时也为项目的持续开发提供支持。
 
-| 交易所 | 状态 | 享手续费折扣注册 |
-| :--- | :---: | :--- |
-| <img src="../../../web/public/exchange-icons/binance.jpg" width="20" height="20" style="vertical-align: middle;"/> **Binance** | ✅ | [注册](https://www.binance.com/join?ref=NOFXENG) |
-| <img src="../../../web/public/exchange-icons/bybit.png" width="20" height="20" style="vertical-align: middle;"/> **Bybit** | ✅ | [注册](https://partner.bybit.com/b/83856) |
-| <img src="../../../web/public/exchange-icons/okx.svg" width="20" height="20" style="vertical-align: middle;"/> **OKX** | ✅ | [注册](https://www.okx.com/join/1865360) |
-| <img src="../../../web/public/exchange-icons/hyperliquid.png" width="20" height="20" style="vertical-align: middle;"/> **Hyperliquid** | ✅ | [注册](https://app.hyperliquid.xyz/join/AITRADING) |
-| <img src="../../../web/public/exchange-icons/bitget.svg" width="20" height="20" style="vertical-align: middle;"/> **Bitget** | ✅ | [注册](https://www.bitget.com/referral/register?from=referral&clacCode=c8a43172) |
-| <img src="../../../web/public/exchange-icons/kucoin.svg" width="20" height="20" style="vertical-align: middle;"/> **KuCoin** | ✅ | [注册](https://www.kucoin.com/r/broker/CXEV7XKK) |
-| <img src="../../../web/public/exchange-icons/gate.svg" width="20" height="20" style="vertical-align: middle;"/> **Gate** | ✅ | [注册](https://www.gatenode.xyz/share/VQBGUAxY) |
-| <img src="../../../web/public/exchange-icons/aster.svg" width="20" height="20" style="vertical-align: middle;"/> **Aster** | ✅ | [注册](https://www.asterdex.com/en/referral/fdfc0e) |
-| <img src="../../../web/public/exchange-icons/lighter.png" width="20" height="20" style="vertical-align: middle;"/> **Lighter** | ✅ | [注册](https://app.lighter.xyz/?referral=68151432) |
+| 交易所                                                                                                                      | 状态 | 享手续费折扣注册                                                          |
+| :---------------------------------------------------------------------------------------------------------------------------- | :----: | :---------------------------------------------------------------------------------- |
+| <img src="../../../web/public/exchange-icons/binance.jpg" width="20" height="20" style="vertical-align: middle;"/> **Binance**       |   ✅   | [注册](https://www.binance.com/join?ref=NOFXENG)                                |
+| <img src="../../../web/public/exchange-icons/bybit.png" width="20" height="20" style="vertical-align: middle;"/> **Bybit**           |   ✅   | [注册](https://partner.bybit.com/b/83856)                                       |
+| <img src="../../../web/public/exchange-icons/okx.svg" width="20" height="20" style="vertical-align: middle;"/> **OKX**               |   ✅   | [注册](https://www.okx.com/join/1865360)                                        |
+| <img src="../../../web/public/exchange-icons/hyperliquid.png" width="20" height="20" style="vertical-align: middle;"/> **Hyperliquid** |   ✅   | [注册](https://app.hyperliquid.xyz/join/AITRADING)                              |
+| <img src="../../../web/public/exchange-icons/bitget.svg" width="20" height="20" style="vertical-align: middle;"/> **Bitget**         |   ✅   | [注册](https://www.bitget.com/referral/register?from=referral&clacCode=c8a43172) |
+| <img src="../../../web/public/exchange-icons/kucoin.svg" width="20" height="20" style="vertical-align: middle;"/> **KuCoin**         |   ✅   | [注册](https://www.kucoin.com/r/broker/CXEV7XKK)                                |
+| <img src="../../../web/public/exchange-icons/gate.svg" width="20" height="20" style="vertical-align: middle;"/> **Gate**             |   ✅   | [注册](https://www.gatenode.xyz/share/VQBGUAxY)                                 |
+| <img src="../../../web/public/exchange-icons/aster.svg" width="20" height="20" style="vertical-align: middle;"/> **Aster**           |   ✅   | [注册](https://www.asterdex.com/en/referral/fdfc0e)                             |
+| <img src="../../../web/public/exchange-icons/lighter.png" width="20" height="20" style="vertical-align: middle;"/> **Lighter**       |   ✅   | [注册](https://app.lighter.xyz/?referral=68151432)                              |
 
----
+<br/>
 
-## 快速演示
+## 演示
 
 https://github.com/user-attachments/assets/3310f495-14c5-4586-a1cc-3d32e44aa505
 
----
+<br/>
 
-## 市场
+## 模型提议，运行时裁决
 
-**美股 · 大宗商品 · 外汇 · 加密资产**
+决策来自一个读取 [Claw402.ai](https://claw402.ai) · Vergex 数据栈的语言模型：实时信号看板为每个市场标注方向偏置与信号强度排名，Signal Lab 提供逐标的深度信号，成本与清算热力图揭示市场的"燃料"与"墙"在哪里，再叠加实时资金净流——并与原始 K 线和交易员自身的实盘战绩交叉验证。但执行不由它说了算。
 
-NOFX 按多资产工作流组织研究、策略构建、执行与监控，而不是停留在单一交易所界面。
+每一笔订单都要经过代码层面强制执行的限制，模型无从干预：
 
----
+|                          |                                                                                    |
+| :----------------------- | :--------------------------------------------------------------------------------- |
+| 持仓限制          | 最大并发持仓数、名义价值按权益比例封顶、每个币种仅允许一个持仓 |
+| 杠杆钳制          | 在订单定量时施加硬上限，与模型请求的杠杆无关     |
+| 交易所端保护 | 每次开仓后立即在交易所挂出止损和止盈单     |
+| 回撤自动平仓      | 盈利持仓从峰值回吐过多时会被自动平掉            |
+| 交易节流         | 最短持仓时间、单币种再入场冷却、单周期与单小时开仓次数限制 |
+| 安全模式                | 模型连续失败时阻止新开仓，直至模型恢复正常                 |
+| 启动预检         | 交易员启动前须通过模型访问、钱包资金、策略和交易所余额的校验 |
 
-## AI 模型接入
+每个决策都连同模型的完整推理一起存档。没有任何持仓是无据可查的。
 
-NOFX 自动通过 [Claw402](https://claw402.ai) 路由 AI 推理请求。用户无需配置大模型供应商、管理 API Key 或维护独立 AI 账户。终端按需按次调用 Claw402 的 AI 模型基础设施，并通过官方折扣通道完成路由。
+<br/>
 
-| 提供商 | 接入 |
+## 终端
+
+| | |
 | :--- | :--- |
-| **Claw402** | [通过官方折扣通道按需使用 AI 模型](https://claw402.ai) |
-
----
-
-## 能力
-
-| 能力 | 描述 |
-| :--- | :--- |
-| **AI 交易终端** | 面向美股、大宗商品、外汇与加密资产的一体化工作区 |
-| **AI 模型接入** | 通过 Claw402 自动接入支持的模型供应商 |
-| **交易所连接** | Binance、Bybit、OKX、Hyperliquid、Bitget、KuCoin、Gate、Aster、Lighter |
-| **策略工作室** | 市场范围、指标、风控与策略逻辑 |
-| **模型竞赛** | 比较 AI 交易员的实时表现与排行榜 |
-| **Telegram Agent** | 通过聊天控制和监控交易助手 |
-| **组合仪表板** | 持仓、盈亏、执行历史与模型决策日志 |
-
----
-
-## 截图
+| **Autopilot** | 引导式启动：注资、连接、入金、启动——全程由服务端预检保驾护航 |
+| **Strategy Studio** | 风格预设、币种池、技术指标、杠杆、开仓置信度、自定义提示词 |
+| **竞赛** | 按已实现收益排名的公开排行榜，每个条目都标注所用模型 |
+| **仪表板** | 实时持仓、订单、统计数据，以及每个决策背后的推理 |
 
 <details>
-<summary><b>配置页</b></summary>
+<summary>截图</summary>
 
-|                         配置                         |                         交易员列表                         |
-| :----------------------------------------------------: | :----------------------------------------------------------: |
-| <img src="../../../screenshots/config-ai-exchanges.png" width="400"/> | <img src="../../../screenshots/config-traders-list.png" width="400"/> |
-
-</details>
-
-<details>
-<summary><b>仪表板</b></summary>
+<br/>
 
 |                        概览                         |                          行情图表                           |
 | :-----------------------------------------------------: | :-------------------------------------------------------------: |
@@ -123,131 +107,51 @@ NOFX 自动通过 [Claw402](https://claw402.ai) 路由 AI 推理请求。用户�
 | :--------------------------------------------------------------: | :-----------------------------------------------------------------: |
 | <img src="../../../screenshots/dashboard-trading-stats.png" width="400"/> | <img src="../../../screenshots/dashboard-position-history.png" width="400"/> |
 
-|                          持仓                           |                    交易员详情                     |
-| :----------------------------------------------------------: | :---------------------------------------------------: |
-| <img src="../../../screenshots/dashboard-positions.png" width="400"/> | <img src="../../../screenshots/details-page.png" width="400"/> |
-
-</details>
-
-<details>
-<summary><b>策略工作室</b></summary>
-
 |                     策略编辑器                      |                      指标配置                       |
 | :------------------------------------------------------: | :----------------------------------------------------------: |
 | <img src="../../../screenshots/strategy-studio.png" width="400"/> | <img src="../../../screenshots/strategy-indicators.png" width="400"/> |
 
-</details>
-
-<details>
-<summary><b>竞赛</b></summary>
-
-|                     竞赛模式                      |
-| :-------------------------------------------------------: |
-| <img src="../../../screenshots/competition-page.png" width="400"/> |
+|                     竞赛                           |                    配置                              |
+| :-------------------------------------------------------: | :-----------------------------------------------------------: |
+| <img src="../../../screenshots/competition-page.png" width="400"/> | <img src="../../../screenshots/config-ai-exchanges.png" width="400"/>  |
 
 </details>
 
----
+<br/>
 
-## 安装
+## 模型
 
-### Linux / macOS
+八家提供商，使用你自己的密钥——DeepSeek、OpenAI、Claude、Qwen、Gemini、Grok、Kimi、MiniMax——并支持自定义端点和模型名称。
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bash
-```
+或者完全不需要密钥：[Claw402](https://claw402.ai) 通过 x402 协议以 USDC 按次计量模型用量。一个 Base 链上的钱包即可替代所有 API 密钥。
 
-### Railway（云部署）
+| 提供商 | 接入方式 |
+| :------- | :----- |
+| **Claw402** | [按量付费的 AI 模型，享官方折扣](https://claw402.ai) |
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/nofx?referralCode=nofx)
+## 市场
 
-### Docker
+九家交易所全部支持加密货币永续合约。在 Hyperliquid 上，同一套运行时还可以交易代币化美股、大宗商品、指数、外汇和 pre-IPO 永续合约——TSLA、NVDA、GOLD、SPX、EUR、OPENAI——与加密资产并行。
 
-```bash
-curl -O https://raw.githubusercontent.com/NoFxAiOS/nofx/main/docker-compose.prod.yml
-docker compose -f docker-compose.prod.yml up -d
-```
-
-### Windows
-
-安装 [Docker Desktop](https://www.docker.com/products/docker-desktop/)，然后：
-
-```powershell
-curl -o docker-compose.prod.yml https://raw.githubusercontent.com/NoFxAiOS/nofx/main/docker-compose.prod.yml
-docker compose -f docker-compose.prod.yml up -d
-```
-
-### 从源码构建
-
-```bash
-# Prerequisites: Go 1.21+, Node.js 18+, TA-Lib
-# macOS: brew install ta-lib
-# Ubuntu: sudo apt-get install libta-lib0-dev
-
-git clone https://github.com/NoFxAiOS/nofx.git && cd nofx
-go build -o nofx && ./nofx
-cd web && npm install && npm run dev
-```
-
-### 更新
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bash
-```
-
----
-
-## 配置
-
-**新手模式**：引导式 onboarding 帮助新用户完成模型访问、交易所连接、策略配置与首次部署。
-
-**进阶模式**：
-
-1. 配置 AI 模型访问
-2. 连接交易所凭证
-3. 构建或导入策略
-4. 创建 AI 交易员配置
-5. 在仪表板启动、监控并迭代
-
-所有配置均可在 Web UI **http://127.0.0.1:3000** 完成。
-
----
-
-## 部署到服务器
-
-**HTTP 部署：**
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bash
-# 通过 http://YOUR_IP:3000 访问
-```
-
-**通过 Cloudflare 启用 HTTPS：**
-
-1. 在 [Cloudflare](https://dash.cloudflare.com)（免费套餐）添加域名
-2. A 记录指向你的服务器 IP（开启代理）
-3. SSL/TLS 选择 Flexible
-4. 在 `.env` 中设置 `TRANSPORT_ENCRYPTION=true`
-
----
+<br/>
 
 ## 架构
 
 ```
-                              NOFX
     ┌─────────────────────────────────────────────────┐
     │                 Trading Terminal                 │
-    │        React + TypeScript + TradingView          │
-    │      US Stocks · Commodities · Forex · Crypto    │
+    │        React · TypeScript · TradingView          │
+    │   Dashboard · Strategy Studio · Competition      │
     ├─────────────────────────────────────────────────┤
     │                  API Server (Go)                  │
+    │      JWT auth · encrypted credential store        │
     ├──────────────┬──────────────┬───────────────────┤
-    │   Strategy    │   Telegram   │   Trader Runtime  │
-    │    Engine     │    Agent     │   Risk Controls   │
+    │   Strategy    │  Autopilot   │   Trader Runtime  │
+    │    Engine     │  Preflight   │    Risk Engine    │
     ├──────────────┴──────────────┴───────────────────┤
     │                 AI Model Layer                    │
-    │    Unified provider access through Claw402        │
-    │    Model routing · payment · execution support    │
+    │  DeepSeek · OpenAI · Claude · Qwen · Gemini      │
+    │  Grok · Kimi · MiniMax · Claw402 (x402 USDC)     │
     ├─────────────────────────────────────────────────┤
     │              Exchange Connectivity                │
     │ Binance · Bybit · OKX · Hyperliquid · Bitget     │
@@ -255,50 +159,99 @@ curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bas
     └─────────────────────────────────────────────────┘
 ```
 
----
+<br/>
+
+## 安装
+
+**Linux / macOS**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bash
+```
+
+**Railway**
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/nofx?referralCode=nofx)
+
+**Docker**
+
+```bash
+curl -O https://raw.githubusercontent.com/NoFxAiOS/nofx/main/docker-compose.prod.yml
+docker compose -f docker-compose.prod.yml up -d
+```
+
+**Windows** —— 安装 [Docker Desktop](https://www.docker.com/products/docker-desktop/)，然后：
+
+```powershell
+curl -o docker-compose.prod.yml https://raw.githubusercontent.com/NoFxAiOS/nofx/main/docker-compose.prod.yml
+docker compose -f docker-compose.prod.yml up -d
+```
+
+**从源码构建** —— 需要 Go 1.21+、Node.js 18+：
+
+```bash
+git clone https://github.com/NoFxAiOS/nofx.git && cd nofx
+go build -o nofx && ./nofx            # backend
+cd web && npm install && npm run dev  # frontend, in a second terminal
+```
+
+**更新** —— 重新运行安装脚本，即可原地升级。
+
+<details>
+<summary>服务器部署</summary>
+
+<br/>
+
+**HTTP**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bash
+# http://YOUR_IP:3000
+```
+
+**通过 Cloudflare 启用 HTTPS**
+
+1. 将域名添加到 [Cloudflare](https://dash.cloudflare.com)（免费套餐即可）
+2. A 记录 → 服务器 IP，开启代理
+3. SSL/TLS → Flexible
+4. 在 `.env` 中设置 `TRANSPORT_ENCRYPTION=true`
+
+</details>
+
+<br/>
 
 ## 文档
 
-| | |
-| :--- | :--- |
-| [架构概览](../../architecture/README.md) | 系统设计和模块索引 |
+|                                                         |                                       |
+| :------------------------------------------------------ | :------------------------------------ |
+| [快速开始](../../getting-started/README.zh-CN.md)       | 部署与交易所 API 指南    |
+| [架构](../../architecture/README.md)             | 系统设计与模块索引        |
 | [策略模块](../../architecture/STRATEGY_MODULE.md) | 币种选择、AI 提示词、执行 |
-| [常见问题](../../faq/README.md) | FAQ |
-| [快速开始](../../getting-started/README.md) | 部署指南 |
+| [常见问题](../../guides/faq.zh-CN.md)                            | 常见疑问解答                      |
+| [故障排查](../../guides/TROUBLESHOOTING.zh-CN.md)       | 常见问题诊断              |
 
----
+## 社区
+
+[Telegram](https://t.me/nofx_dev_community) · [Twitter/X](https://x.com/vergex_ai) · [Issues](https://github.com/NoFxAiOS/nofx/issues) · [vergex.trade](https://vergex.trade) · [实时仪表板](https://vergex.trade/explore)
 
 ## 贡献
 
-查看 [贡献指南](../../../CONTRIBUTING.md)、[行为准则](../../../CODE_OF_CONDUCT.md) 与 [安全政策](../../../SECURITY.md)。
+代码、文档、翻译和 Bug 报告都欢迎——参见[贡献指南](../../../CONTRIBUTING.md)、[行为准则](../../../CODE_OF_CONDUCT.md)和[安全政策](../../../SECURITY.md)。
 
-### 贡献者计划
+NOFX 会记录有价值的贡献，并计划随着生态发展回馈贡献者。优先级 Issue 拥有更高权重。
 
-NOFX 会记录有价值的贡献，并计划在生态增长后回馈贡献者。优先级 Issue 拥有更高奖励权重。
+| 贡献类型      | 权重 |
+| :---------------- | :----: |
+| 置顶 Issue 的 PR  | ★★★★★★ |
+| 代码（已合并 PR） | ★★★★★  |
+| Bug 修复         |  ★★★★  |
+| 功能建议     |  ★★★   |
+| Bug 报告       |   ★★   |
+| 文档     |   ★★   |
 
-| Contribution | Weight |
-| :--- | :---: |
-| Pinned Issue PRs | ★★★★★★ |
-| Code (Merged PRs) | ★★★★★ |
-| Bug Fixes | ★★★★ |
-| Feature Ideas | ★★★ |
-| Bug Reports | ★★ |
-| Documentation | ★★ |
-
----
-
-## 链接
-
-| | |
-| :--- | :--- |
-| 官网 | [vergex.trade](https://vergex.trade) |
-| Dashboard | [vergex.trade/explore](https://vergex.trade/explore) |
-| Telegram | [nofx_dev_community](https://t.me/nofx_dev_community) |
-| Twitter | [@vergex_ai](https://x.com/vergex_ai) |
-
-> **风险提示**：自动化交易存在重大风险。请控制仓位，理解每个交易场所的机制，不要投入无法承受损失的资金。
-
----
+<a href="https://github.com/NoFxAiOS/nofx/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=NoFxAiOS/nofx" alt="Contributors"/>
+</a>
 
 ## 赞助者
 
@@ -316,8 +269,14 @@ NOFX 会记录有价值的贡献，并计划在生态增长后回馈贡献者。
 
 [成为赞助者](https://github.com/sponsors/NoFxAiOS)
 
-## License
+<br/>
+
+如果 NOFX 对你有帮助，点个 Star 能让更多交易者发现它。
+
+[![Star History Chart](https://api.star-history.com/svg?repos=NoFxAiOS/nofx&type=Date)](https://star-history.com/#NoFxAiOS/nofx&Date)
+
+## 许可证
 
 [AGPL-3.0](../../../LICENSE)
 
-[![Star History Chart](https://api.star-history.com/svg?repos=NoFxAiOS/nofx&type=Date)](https://star-history.com/#NoFxAiOS/nofx&Date)
+<sub>自动化交易存在重大风险。AI 驱动的策略尚处实验阶段，可能造成亏损。请合理控制仓位规模，充分了解每个交易场所，切勿投入无法承受损失的资金。完整[免责声明](../../../DISCLAIMER.md)。</sub>
