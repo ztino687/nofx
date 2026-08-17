@@ -32,6 +32,31 @@ func TestApplyAutopilotFullSizeOpenForClaw402(t *testing.T) {
 	}
 }
 
+func TestDefaultAutopilotFullSizeOpenUsesFourPositionAllocation(t *testing.T) {
+	cfg := store.GetDefaultStrategyConfig("en")
+	cfg.CoinSource.SourceType = "vergex_signal"
+
+	at := &AutoTrader{config: AutoTraderConfig{StrategyConfig: &cfg}}
+	decision := &kernel.Decision{
+		Symbol:          "xyz:INTC",
+		Action:          "open_long",
+		Leverage:        3,
+		PositionSizeUSD: 12,
+	}
+
+	at.applyAutopilotFullSizeOpen(decision, 100)
+
+	if cfg.RiskControl.MaxPositions != 4 {
+		t.Fatalf("expected four default positions, got %d", cfg.RiskControl.MaxPositions)
+	}
+	if decision.Leverage != 10 {
+		t.Fatalf("expected default leverage to remain 10x, got %dx", decision.Leverage)
+	}
+	if decision.PositionSizeUSD != 240 {
+		t.Fatalf("expected each default position to use 2.4x equity notional, got %.2f", decision.PositionSizeUSD)
+	}
+}
+
 func TestApplyAutopilotFullSizeOpenSkipsNonClaw402Strategies(t *testing.T) {
 	cfg := store.GetDefaultStrategyConfig("en")
 	cfg.CoinSource.SourceType = "static"

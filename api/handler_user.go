@@ -229,13 +229,13 @@ func (s *Server) createDefaultStrategies(userID string, lang string) error {
 	}
 	locales := map[string]strategyLocale{
 		"zh": {
-			defaultStrategy: strategyI18n{"NOFX Claw402 Auto Strategy", "The only built-in strategy: read the Claw402.ai board each cycle, fetch Signal Lab and cost/liquidation heatmap per candidate, then decide with raw candles."},
+			defaultStrategy: strategyI18n{"NOFX Claw402 Auto Strategy", "The only built-in strategy: read the Claw402.ai direction board each cycle, load direction history and cost/liquidation heatmaps, then manage positions by the live board."},
 		},
 		"en": {
-			defaultStrategy: strategyI18n{"NOFX Claw402 Auto Strategy", "The only built-in strategy: read the Claw402.ai board each cycle, fetch Signal Lab and cost/liquidation heatmap per candidate, then decide with raw candles."},
+			defaultStrategy: strategyI18n{"NOFX Claw402 Auto Strategy", "The only built-in strategy: read the Claw402.ai direction board each cycle, load direction history and cost/liquidation heatmaps, then manage positions by the live board."},
 		},
 		"id": {
-			defaultStrategy: strategyI18n{"Strategi Otomatis NOFX Claw402", "Satu strategi bawaan: membaca papan Claw402.ai, mengambil Signal Lab dan heatmap biaya/likuidasi per kandidat, lalu memutuskan dengan candle mentah."},
+			defaultStrategy: strategyI18n{"Strategi Otomatis NOFX Claw402", "Satu strategi bawaan: membaca papan arah Claw402.ai setiap siklus, memuat riwayat arah dan heatmap biaya/likuidasi, lalu mengelola posisi mengikuti papan langsung."},
 		},
 	}
 	locale, ok := locales[lang]
@@ -262,14 +262,13 @@ func (s *Server) createDefaultStrategies(userID string, lang string) error {
 		c.CoinSource.VergexLimit = 10
 		c.CoinSource.VergexMarketType = "all"
 		c.CoinSource.VergexChain = "hyperliquid"
-		c.RiskControl.MaxPositions = 2
+		c.RiskControl.MaxPositions = 4
 		c.RiskControl.BTCETHMaxLeverage = 10
 		c.RiskControl.AltcoinMaxLeverage = 10
-		// Few, concentrated positions held for big moves. 10x leverage keeps a
-		// wide (-5%) stop survivable (~-50% margin, ~10% liquidation cushion);
-		// 2 positions × 5x = 10x total notional (full margin, doubled exposure).
-		c.RiskControl.BTCETHMaxPositionValueRatio = 5.0
-		c.RiskControl.AltcoinMaxPositionValueRatio = 5.0
+		// Allocate approximately one quarter of the available 10x buying power to
+		// each position while retaining a small execution and fee buffer.
+		c.RiskControl.BTCETHMaxPositionValueRatio = 2.4
+		c.RiskControl.AltcoinMaxPositionValueRatio = 2.4
 		c.RiskControl.MaxMarginUsage = 1.0
 		c.RiskControl.MinConfidence = 78
 		c.RiskControl.MinRiskRewardRatio = 3.0

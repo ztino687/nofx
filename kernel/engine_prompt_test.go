@@ -20,14 +20,19 @@ func TestBuildSystemPromptUsesVergexClaw402Prompt(t *testing.T) {
 	if !strings.Contains(prompt, "NOFX Claw402 auto-trader") {
 		t.Fatalf("prompt did not use the Claw402/Vergex TradeFi role:\n%s", prompt)
 	}
-	if !strings.Contains(prompt, "Claw402.ai Signal Ranking") || !strings.Contains(prompt, "Signal Lab") || !strings.Contains(prompt, "Cost/Liquidation Heatmap") {
+	if !strings.Contains(prompt, "Claw402.ai Direction Board") || !strings.Contains(prompt, "Current Direction and Direction History") || !strings.Contains(prompt, "Cost/Liquidation Heatmap") {
 		t.Fatalf("prompt is missing Claw402/Vergex detail data guidance:\n%s", prompt)
 	}
 	if !strings.Contains(prompt, "open_short") {
 		t.Fatalf("prompt should explicitly allow short entries:\n%s", prompt)
 	}
-	if !strings.Contains(prompt, "Direction must be data-driven") {
-		t.Fatalf("prompt should explain that direction is data-driven, not long-only:\n%s", prompt)
+	if !strings.Contains(prompt, "Direction is determined only by the current Claw402 ranking") {
+		t.Fatalf("prompt should make the current Claw402 direction authoritative:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "Existing long + bullish ranking: always `hold`") ||
+		!strings.Contains(prompt, "Existing short + bearish ranking: always `hold`") ||
+		!strings.Contains(prompt, "Close an existing position only when its ranking direction changes") {
+		t.Fatalf("prompt is missing the strict signal hold/exit state machine:\n%s", prompt)
 	}
 	if !strings.Contains(prompt, "every open position must use exactly 10x") {
 		t.Fatalf("prompt should force 10x leverage for Claw402 opens:\n%s", prompt)
@@ -46,6 +51,9 @@ func TestBuildSystemPromptUsesVergexClaw402Prompt(t *testing.T) {
 		"LONG-ONLY",
 		"Do not short",
 		"MUST open a long",
+		"Ranking alone is not an entry reason",
+		"Open only when Signal Lab",
+		"Claw402.ai Signal Lab",
 	}
 	for _, phrase := range legacyPhrases {
 		if strings.Contains(prompt, phrase) {

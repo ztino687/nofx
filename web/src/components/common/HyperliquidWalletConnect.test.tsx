@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   createExchangeEncrypted: vi.fn(),
   updateExchangeConfigsEncrypted: vi.fn(),
   getProvider: vi.fn(),
+  getProviders: vi.fn(),
 }))
 
 vi.mock('../../lib/api', () => ({
@@ -25,6 +26,27 @@ vi.mock('../../lib/hyperliquidWallet', () => ({
   formatUSDC: (value?: number) =>
     typeof value === 'number' ? value.toFixed(2) : '--',
   getPreferredWalletProvider: () => mocks.getProvider(),
+  getWalletProviders: () => mocks.getProviders(),
+  subscribeWalletProviders: (
+    onChange: (providers: Array<{ label?: string }>) => void
+  ) => {
+    onChange(mocks.getProviders())
+    return vi.fn()
+  },
+  getWalletProviderName: (provider: { label?: string }) =>
+    provider.label || 'Browser wallet',
+  getWalletProviderForAddress: () => Promise.resolve(mocks.getProvider()),
+  getWalletErrorMessage: (error: unknown, fallback: string) => {
+    if (error instanceof Error) return error.message
+    if (
+      error &&
+      typeof error === 'object' &&
+      typeof (error as { message?: unknown }).message === 'string'
+    ) {
+      return String((error as { message: string }).message)
+    }
+    return fallback
+  },
   normalizeAddress: (value: string) => value.toLowerCase(),
   shortAddress: (value?: string) => value || '--',
   signHyperliquidUserAction: async (
@@ -67,6 +89,11 @@ describe('Hyperliquid guided connection', () => {
     mocks.updateExchangeConfigsEncrypted.mockResolvedValue(undefined)
     mocks.getProvider.mockReset()
     mocks.getProvider.mockReturnValue(undefined)
+    mocks.getProviders.mockReset()
+    mocks.getProviders.mockImplementation(() => {
+      const provider = mocks.getProvider()
+      return provider ? [provider] : []
+    })
   })
 
   it('shows one clear current action instead of internal implementation steps', () => {
@@ -114,6 +141,7 @@ describe('Hyperliquid guided connection', () => {
       <HyperliquidWalletConnect language="en" isLoggedIn variant="inline" />
     )
 
+    fireEvent.click(screen.getByRole('button', { name: 'Browser wallet' }))
     fireEvent.click(screen.getByRole('button', { name: 'Connect wallet' }))
     await waitFor(() =>
       expect(
@@ -176,6 +204,64 @@ describe('Hyperliquid guided connection', () => {
     expect(screen.getByText('0xnew')).toBeTruthy()
   })
 
+  it('shows the wallet provider error instead of a generic connection failure', async () => {
+    mocks.getProvider.mockReturnValue({
+      request: vi.fn().mockRejectedValue({
+        code: 4001,
+        message: 'Request rejected by Rabby',
+      }),
+      on: vi.fn(),
+      removeListener: vi.fn(),
+    })
+
+    render(
+      <HyperliquidWalletConnect language="en" isLoggedIn variant="inline" />
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Browser wallet' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Connect wallet' }))
+
+    expect(await screen.findByText('Request rejected by Rabby')).toBeTruthy()
+    expect(screen.queryByText('Wallet connection failed')).toBeNull()
+  })
+
+  it('lets the user choose which injected wallet extension to connect', async () => {
+    const rabby = {
+      label: 'Rabby',
+      request: vi.fn(),
+      on: vi.fn(),
+      removeListener: vi.fn(),
+    }
+    const metamask = {
+      label: 'MetaMask',
+      request: vi.fn(async ({ method }: { method: string }) => {
+        if (method === 'eth_requestAccounts') return ['0xMAIN']
+        throw new Error(`Unexpected method: ${method}`)
+      }),
+      on: vi.fn(),
+      removeListener: vi.fn(),
+    }
+    mocks.getProvider.mockReturnValue(rabby)
+    mocks.getProviders.mockReturnValue([rabby, metamask])
+
+    render(
+      <HyperliquidWalletConnect language="en" isLoggedIn variant="inline" />
+    )
+
+    expect(screen.getByRole('button', { name: 'Rabby' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'MetaMask' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Connect wallet' }))
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Approve trade-only access' })
+      ).toBeTruthy()
+    )
+    expect(metamask.request).toHaveBeenCalledWith({
+      method: 'eth_requestAccounts',
+    })
+    expect(rabby.request).not.toHaveBeenCalled()
+  })
+
   it('does not submit a signature if the wallet account changes while approval is open', async () => {
     let accountsChanged: ((accounts: unknown) => void) | undefined
     let resolveSignature: ((signature: string) => void) | undefined
@@ -198,6 +284,7 @@ describe('Hyperliquid guided connection', () => {
     render(
       <HyperliquidWalletConnect language="en" isLoggedIn variant="inline" />
     )
+    fireEvent.click(screen.getByRole('button', { name: 'Browser wallet' }))
     fireEvent.click(screen.getByRole('button', { name: 'Connect wallet' }))
     await screen.findByRole('button', { name: 'Approve trade-only access' })
     fireEvent.click(
@@ -235,6 +322,7 @@ describe('Hyperliquid guided connection', () => {
         }}
       />
     )
+    fireEvent.click(screen.getByRole('button', { name: 'Browser wallet' }))
     fireEvent.click(screen.getByRole('button', { name: 'Connect wallet' }))
     await screen.findByRole('button', { name: 'Approve trade-only access' })
     fireEvent.click(

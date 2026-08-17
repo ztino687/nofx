@@ -34,8 +34,14 @@ func (at *AutoTrader) executeDecisionWithRecord(decision *kernel.Decision, actio
 		return at.executeCloseLongWithRecord(decision, actionRecord)
 	case "close_short":
 		return at.executeCloseShortWithRecord(decision, actionRecord)
-	case "hold", "wait":
-		// No execution needed, just record
+	case "hold":
+		if at.usesSignalManagedExit() {
+			if err := at.trader.CancelTakeProfitOrders(decision.Symbol); err != nil {
+				logger.Infof("  ⚠ Failed to remove fixed take profit for signal-managed hold: %v", err)
+			}
+		}
+		return nil
+	case "wait":
 		return nil
 	default:
 		return fmt.Errorf("unknown action: %s", decision.Action)
@@ -147,11 +153,16 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *kernel.Decision, actio
 	posKey := decision.Symbol + "_long"
 	at.positionFirstSeenTime[posKey] = time.Now().UnixMilli()
 
-	// Set stop loss and take profit
+	// Keep a protective stop on the exchange. Vergex positions use the current
+	// direction board for ordinary exits, so a fixed take-profit must not close
+	// an otherwise unchanged signal.
 	if err := at.trader.SetStopLoss(decision.Symbol, "LONG", quantity, decision.StopLoss); err != nil {
 		logger.Infof("  ⚠ Failed to set stop loss: %v", err)
 	}
-	if err := at.trader.SetTakeProfit(decision.Symbol, "LONG", quantity, decision.TakeProfit); err != nil {
+	if at.usesSignalManagedExit() {
+		actionRecord.TakeProfit = 0
+		logger.Infof("  ✓ Fixed take profit skipped: Claw402 direction signal manages ordinary exits")
+	} else if err := at.trader.SetTakeProfit(decision.Symbol, "LONG", quantity, decision.TakeProfit); err != nil {
 		logger.Infof("  ⚠ Failed to set take profit: %v", err)
 	}
 
@@ -263,11 +274,16 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *kernel.Decision, acti
 	posKey := decision.Symbol + "_short"
 	at.positionFirstSeenTime[posKey] = time.Now().UnixMilli()
 
-	// Set stop loss and take profit
+	// Keep a protective stop on the exchange. Vergex positions use the current
+	// direction board for ordinary exits, so a fixed take-profit must not close
+	// an otherwise unchanged signal.
 	if err := at.trader.SetStopLoss(decision.Symbol, "SHORT", quantity, decision.StopLoss); err != nil {
 		logger.Infof("  ⚠ Failed to set stop loss: %v", err)
 	}
-	if err := at.trader.SetTakeProfit(decision.Symbol, "SHORT", quantity, decision.TakeProfit); err != nil {
+	if at.usesSignalManagedExit() {
+		actionRecord.TakeProfit = 0
+		logger.Infof("  ✓ Fixed take profit skipped: Claw402 direction signal manages ordinary exits")
+	} else if err := at.trader.SetTakeProfit(decision.Symbol, "SHORT", quantity, decision.TakeProfit); err != nil {
 		logger.Infof("  ⚠ Failed to set take profit: %v", err)
 	}
 

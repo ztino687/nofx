@@ -193,7 +193,7 @@ export function TerminalDashboard({
   )
   const { data: realSignalRank } = useSWR(
     traderId ? ['signal-rank', traderId] : null,
-    () => api.getSignalRanking(selectedTrader?.ai_model, 'mainnet', 'all', 30, true),
+    () => api.getDirectionChangeLeaderboard(30, true),
     // paid x402 endpoint — poll slowly (5m) to conserve claw402 funds
     { refreshInterval: 300000, shouldRetryOnError: false }
   )

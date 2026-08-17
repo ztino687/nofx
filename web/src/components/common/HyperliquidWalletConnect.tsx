@@ -20,10 +20,14 @@ import type {
 import type { Language } from '../../i18n/translations'
 import {
   formatUSDC,
-  getPreferredWalletProvider,
+  getWalletErrorMessage,
+  getWalletProviderName,
+  getWalletProviderForAddress,
   normalizeAddress,
   shortAddress,
   signHyperliquidUserAction,
+  subscribeWalletProviders,
+  type WalletProvider,
 } from '../../lib/hyperliquidWallet'
 
 interface HyperliquidWalletConnectProps {
@@ -118,6 +122,7 @@ export function HyperliquidWalletConnect({
   const [error, setError] = useState('')
   const [state, setState] = useState<FlowState>(() => getSavedState())
   const currentMainWalletRef = useRef(state.mainWallet)
+  const walletProviderRef = useRef<WalletProvider>()
   currentMainWalletRef.current = state.mainWallet
   const [account, setAccount] = useState<HyperliquidAccountSummary | null>(null)
   const [balanceLoading, setBalanceLoading] = useState(false)
@@ -125,6 +130,9 @@ export function HyperliquidWalletConnect({
   const [agentInfo, setAgentInfo] = useState<HyperliquidAgentInfo | null>(null)
   const [agentInfoLoading, setAgentInfoLoading] = useState(false)
   const [hasWalletProvider, setHasWalletProvider] = useState(false)
+  const [walletProviders, setWalletProviders] = useState<WalletProvider[]>([])
+  const [selectedWalletProvider, setSelectedWalletProvider] =
+    useState<WalletProvider>()
   // Address of a fully-authorized hyperliquid exchange saved on the SERVER.
   // The local FlowState lives in this browser's localStorage, so a fresh
   // browser would otherwise show the red "Connect" CTA even though trading
@@ -197,7 +205,19 @@ export function HyperliquidWalletConnect({
   )
 
   useEffect(() => {
-    setHasWalletProvider(Boolean(getPreferredWalletProvider()))
+    return subscribeWalletProviders((providers) => {
+      setWalletProviders(providers)
+      setHasWalletProvider(providers.length > 0)
+      setSelectedWalletProvider((selected) => {
+        if (selected && providers.includes(selected)) return selected
+        if (currentMainWalletRef.current && providers.length === 1) {
+          walletProviderRef.current = providers[0]
+          return providers[0]
+        }
+        walletProviderRef.current = undefined
+        return undefined
+      })
+    })
   }, [])
 
   useEffect(() => {
@@ -277,31 +297,38 @@ export function HyperliquidWalletConnect({
   }, [isLoggedIn, state.mainWallet])
 
   useEffect(() => {
-    const handler = (accounts: unknown) => {
-      const next =
-        Array.isArray(accounts) && typeof accounts[0] === 'string'
-          ? normalizeAddress(accounts[0])
-          : undefined
-      if (
-        normalizeAddress(currentMainWalletRef.current || '') === (next || '')
-      ) {
-        return
+    const subscriptions = walletProviders.map((provider) => {
+      const handler = (accounts: unknown) => {
+        if (walletProviderRef.current !== provider) return
+        const next =
+          Array.isArray(accounts) && typeof accounts[0] === 'string'
+            ? normalizeAddress(accounts[0])
+            : undefined
+        if (
+          normalizeAddress(currentMainWalletRef.current || '') === (next || '')
+        ) {
+          return
+        }
+        currentMainWalletRef.current = next
+        setState(next ? { mainWallet: next } : {})
+        setAccount(null)
+        setAgentInfo(null)
+        setBalanceError('')
+        setError(
+          next
+            ? 'Wallet account changed. Review and restart authorization.'
+            : 'Wallet disconnected. Connect a wallet to continue.'
+        )
       }
-      currentMainWalletRef.current = next
-      setState(next ? { mainWallet: next } : {})
-      setAccount(null)
-      setAgentInfo(null)
-      setBalanceError('')
-      setError(
-        next
-          ? 'Wallet account changed. Review and restart authorization.'
-          : 'Wallet disconnected. Connect a wallet to continue.'
+      provider.on?.('accountsChanged', handler)
+      return { provider, handler }
+    })
+    return () => {
+      subscriptions.forEach(({ provider, handler }) =>
+        provider.removeListener?.('accountsChanged', handler)
       )
     }
-    const provider = getPreferredWalletProvider()
-    provider?.on?.('accountsChanged', handler)
-    return () => provider?.removeListener?.('accountsChanged', handler)
-  }, [])
+  }, [walletProviders])
 
   useEffect(() => {
     if (open && state.mainWallet) {
@@ -432,7 +459,14 @@ export function HyperliquidWalletConnect({
 
   async function connectWallet() {
     setError('')
-    const provider = getPreferredWalletProvider()
+    const expectedWallet = serverExchangeAddr || state.mainWallet
+    if (walletProviders.length > 0 && !selectedWalletProvider) {
+      setError('Choose the wallet extension you want to connect.')
+      return
+    }
+    const provider =
+      selectedWalletProvider ||
+      (await getWalletProviderForAddress(expectedWallet))
     if (!provider) {
       setError(
         language === 'zh'
@@ -450,6 +484,17 @@ export function HyperliquidWalletConnect({
           : ''
       if (!first) throw new Error('Wallet returned no account')
       const normalized = normalizeAddress(first)
+      if (
+        serverExchangeAddr &&
+        normalized !== normalizeAddress(serverExchangeAddr)
+      ) {
+        currentMainWalletRef.current = undefined
+        setState({})
+        throw new Error(
+          `Connected wallet ${shortAddress(normalized)} does not match the configured Hyperliquid account ${shortAddress(serverExchangeAddr)}. Switch the active account in your wallet extension and retry.`
+        )
+      }
+      walletProviderRef.current = provider
       currentMainWalletRef.current = normalized
       setState((prev) => {
         const sameWallet = prev.mainWallet === normalized
@@ -490,7 +535,12 @@ export function HyperliquidWalletConnect({
         })
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Wallet connection failed')
+      const message = getWalletErrorMessage(err, 'Wallet connection failed')
+      setError(
+        /at least one account|no accounts?|account is required/i.test(message)
+          ? 'No account is available in this wallet. Create or import an account in the selected wallet, then try again.'
+          : message
+      )
     } finally {
       setBusy(false)
     }
@@ -526,8 +576,11 @@ export function HyperliquidWalletConnect({
     fields: { name: string; type: string }[],
     expectedWallet: string
   ) {
-    const provider = getPreferredWalletProvider()
+    const provider =
+      walletProviderRef.current ||
+      (await getWalletProviderForAddress(expectedWallet))
     if (!provider || !expectedWallet) throw new Error('Wallet is not connected')
+    walletProviderRef.current = provider
     assertCurrentWallet(expectedWallet)
     const { action: signedAction, signature } = await signHyperliquidUserAction(
       provider,
@@ -600,7 +653,7 @@ export function HyperliquidWalletConnect({
       toast.success('Hyperliquid agent approved')
       void refreshAgentInfo()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Agent approval failed')
+      setError(getWalletErrorMessage(err, 'Agent approval failed'))
     } finally {
       setBusy(false)
     }
@@ -699,7 +752,7 @@ export function HyperliquidWalletConnect({
       toast.success('Agent renewed (new agent, valid 180 days)')
       await refreshAgentInfo(walletSnapshot)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Agent renewal failed')
+      setError(getWalletErrorMessage(err, 'Agent renewal failed'))
     } finally {
       setBusy(false)
     }
@@ -789,9 +842,7 @@ export function HyperliquidWalletConnect({
       setError(
         approvalComplete
           ? `Wallet authorization succeeded, but NOFX could not save the connection. Use “Save connection” to retry. ${err instanceof Error ? err.message : ''}`
-          : err instanceof Error
-            ? err.message
-            : 'Trading authorization failed'
+          : getWalletErrorMessage(err, 'Trading authorization failed')
       )
     } finally {
       setBusy(false)
@@ -879,11 +930,7 @@ export function HyperliquidWalletConnect({
       toast.success('Hyperliquid account saved to NOFX')
       await refreshAfterSave()
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Failed to save Hyperliquid account'
-      )
+      setError(getWalletErrorMessage(err, 'Failed to save Hyperliquid account'))
     } finally {
       setBusy(false)
     }
@@ -993,6 +1040,55 @@ export function HyperliquidWalletConnect({
                 </div>
               </div>
             </div>
+
+            {!state.mainWallet && walletProviders.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-3 text-xs">
+                  <span className="font-semibold text-nofx-text">
+                    Choose wallet
+                  </span>
+                  {serverExchangeAddr && (
+                    <span className="text-nofx-text-muted">
+                      Expected {shortAddress(serverExchangeAddr)}
+                    </span>
+                  )}
+                </div>
+                <div
+                  className="grid grid-cols-2 gap-2"
+                  role="group"
+                  aria-label="Wallet extension"
+                >
+                  {walletProviders.map((provider, index) => {
+                    const selected = selectedWalletProvider === provider
+                    return (
+                      <button
+                        key={`${getWalletProviderName(provider)}-${index}`}
+                        type="button"
+                        aria-pressed={selected}
+                        onClick={() => {
+                          walletProviderRef.current = provider
+                          setSelectedWalletProvider(provider)
+                          setError('')
+                        }}
+                        className={`flex min-h-11 items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left text-xs font-semibold transition-colors ${
+                          selected
+                            ? 'border-nofx-gold bg-nofx-gold/10 text-nofx-text'
+                            : 'border-[rgba(26,24,19,0.14)] bg-nofx-bg-deeper text-nofx-text hover:border-[rgba(26,24,19,0.28)]'
+                        }`}
+                      >
+                        <span className="flex min-w-0 items-center gap-2">
+                          <Wallet className="h-4 w-4 shrink-0" />
+                          <span className="truncate">
+                            {getWalletProviderName(provider)}
+                          </span>
+                        </span>
+                        {selected && <Check className="h-4 w-4 shrink-0" />}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
 
             {error && (
               <div className="rounded-lg border border-nofx-danger/30 bg-nofx-danger/10 p-3 text-xs text-nofx-danger">

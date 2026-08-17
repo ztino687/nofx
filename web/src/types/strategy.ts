@@ -201,8 +201,8 @@ export interface RiskControlConfig {
 
   // Position Value Ratio - single position notional value / account equity (CODE ENFORCED)
   // Max position value = equity × this ratio
-  btc_eth_max_position_value_ratio?: number;     // default: 5 (BTC/ETH max position = 5x equity)
-  altcoin_max_position_value_ratio?: number;     // default: 1 (Altcoin max position = 1x equity)
+  btc_eth_max_position_value_ratio?: number;     // default: 2.4 (four-position allocation at 10x leverage)
+  altcoin_max_position_value_ratio?: number;     // default: 2.4 (four-position allocation at 10x leverage)
 
   // Risk Parameters
   max_margin_usage: number;        // Max margin utilization, e.g. 0.9 = 90% (CODE ENFORCED)
