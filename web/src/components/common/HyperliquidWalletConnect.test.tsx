@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   submitHyperliquidApproval: vi.fn(),
   createExchangeEncrypted: vi.fn(),
   updateExchangeConfigsEncrypted: vi.fn(),
+  getHyperliquidAgent: vi.fn(),
   getProvider: vi.fn(),
   getProviders: vi.fn(),
 }))
@@ -19,6 +20,7 @@ vi.mock('../../lib/api', () => ({
     submitHyperliquidApproval: mocks.submitHyperliquidApproval,
     createExchangeEncrypted: mocks.createExchangeEncrypted,
     updateExchangeConfigsEncrypted: mocks.updateExchangeConfigsEncrypted,
+    getHyperliquidAgent: mocks.getHyperliquidAgent,
   },
 }))
 
@@ -84,9 +86,37 @@ describe('Hyperliquid guided connection', () => {
     mocks.submitHyperliquidApproval.mockReset()
     mocks.submitHyperliquidApproval.mockResolvedValue(undefined)
     mocks.createExchangeEncrypted.mockReset()
-    mocks.createExchangeEncrypted.mockResolvedValue({ id: 'hyperliquid-1' })
+    mocks.createExchangeEncrypted.mockImplementation(async (payload) => {
+      mocks.getExchangeConfigs.mockResolvedValue([
+        {
+          id: 'hyperliquid-1',
+          exchange_type: 'hyperliquid',
+          enabled: true,
+          hyperliquidWalletAddr: payload.hyperliquid_wallet_addr,
+          hyperliquidAgentAddress: '0xagent',
+          hyperliquidBuilderApproved: true,
+        },
+      ])
+      return { id: 'hyperliquid-1' }
+    })
     mocks.updateExchangeConfigsEncrypted.mockReset()
     mocks.updateExchangeConfigsEncrypted.mockResolvedValue(undefined)
+    mocks.getHyperliquidAgent.mockReset()
+    mocks.getHyperliquidAgent.mockResolvedValue({
+      agent: {
+        name: 'NOFX Agent',
+        address: '0xagent',
+        validUntil: Date.now() + 60_000,
+      },
+      builderApproved: true,
+      agents: [
+        {
+          name: 'NOFX Agent',
+          address: '0xagent',
+          validUntil: Date.now() + 60_000,
+        },
+      ],
+    })
     mocks.getProvider.mockReset()
     mocks.getProvider.mockReturnValue(undefined)
     mocks.getProviders.mockReset()
@@ -180,6 +210,16 @@ describe('Hyperliquid guided connection', () => {
         savedExchangeId: 'hyperliquid-1',
       })
     )
+    mocks.getExchangeConfigs.mockResolvedValue([
+      {
+        id: 'hyperliquid-1',
+        exchange_type: 'hyperliquid',
+        enabled: true,
+        hyperliquidWalletAddr: '0xmain',
+        hyperliquidAgentAddress: '0xagent',
+        hyperliquidBuilderApproved: true,
+      },
+    ])
     let accountsChanged: ((accounts: unknown) => void) | undefined
     mocks.getProvider.mockReturnValue({
       request: vi.fn(),
@@ -192,7 +232,7 @@ describe('Hyperliquid guided connection', () => {
     render(
       <HyperliquidWalletConnect language="en" isLoggedIn variant="inline" />
     )
-    expect(screen.getByText('Hyperliquid is ready')).toBeTruthy()
+    await screen.findByText('Hyperliquid is ready')
 
     await act(async () => {
       accountsChanged?.(['0xNEW'])
@@ -202,6 +242,102 @@ describe('Hyperliquid guided connection', () => {
     expect(screen.queryByText('Hyperliquid is ready')).toBeNull()
     expect(screen.getByText('Prepare secure trading access')).toBeTruthy()
     expect(screen.getByText('0xnew')).toBeTruthy()
+  })
+
+  it('does not trust cached authorization when the saved agent is not approved on-chain', async () => {
+    localStorage.setItem(
+      'nofx.hyperliquid.connection.v6',
+      JSON.stringify({
+        mainWallet: '0xmain',
+        agentAddress: '0xsaved-agent',
+        agentApproved: true,
+        builderApproved: true,
+        savedExchangeId: 'hyperliquid-1',
+      })
+    )
+    mocks.getExchangeConfigs.mockResolvedValue([
+      {
+        id: 'hyperliquid-1',
+        exchange_type: 'hyperliquid',
+        enabled: true,
+        hyperliquidWalletAddr: '0xmain',
+        hyperliquidAgentAddress: '0xsaved-agent',
+        hyperliquidBuilderApproved: true,
+      },
+    ])
+    mocks.getHyperliquidAgent.mockResolvedValue({
+      agent: {
+        name: 'NOFX Agent',
+        address: '0xold-agent',
+        validUntil: Date.now() + 60_000,
+      },
+      builderApproved: true,
+      agents: [
+        {
+          name: 'NOFX Agent',
+          address: '0xold-agent',
+          validUntil: Date.now() + 60_000,
+        },
+      ],
+    })
+
+    render(
+      <HyperliquidWalletConnect language="en" isLoggedIn variant="inline" />
+    )
+
+    await waitFor(() =>
+      expect(screen.queryByText('Hyperliquid is ready')).toBeNull()
+    )
+    expect(
+      screen.getByRole('button', { name: 'Re-authorize trade-only access' })
+    ).toBeTruthy()
+  })
+
+  it('does not report Ready after the on-chain builder fee is revoked', async () => {
+    localStorage.setItem(
+      'nofx.hyperliquid.connection.v6',
+      JSON.stringify({
+        mainWallet: '0xmain',
+        agentAddress: '0xagent',
+        agentApproved: true,
+        builderApproved: true,
+        savedExchangeId: 'hyperliquid-1',
+      })
+    )
+    mocks.getExchangeConfigs.mockResolvedValue([
+      {
+        id: 'hyperliquid-1',
+        exchange_type: 'hyperliquid',
+        enabled: true,
+        hyperliquidWalletAddr: '0xmain',
+        hyperliquidAgentAddress: '0xagent',
+        hyperliquidBuilderApproved: true,
+      },
+    ])
+    mocks.getHyperliquidAgent.mockResolvedValue({
+      agent: {
+        name: 'NOFX Agent',
+        address: '0xagent',
+        validUntil: Date.now() + 60_000,
+      },
+      builderApproved: false,
+      agents: [
+        {
+          name: 'NOFX Agent',
+          address: '0xagent',
+          validUntil: Date.now() + 60_000,
+        },
+      ],
+    })
+
+    render(
+      <HyperliquidWalletConnect language="en" isLoggedIn variant="inline" />
+    )
+
+    await waitFor(() =>
+      expect(screen.queryByText('Hyperliquid is ready')).toBeNull()
+    )
+    expect(screen.getByText('Finish authorization · 2 of 2')).toBeTruthy()
   })
 
   it('shows the wallet provider error instead of a generic connection failure', async () => {
@@ -335,5 +471,104 @@ describe('Hyperliquid guided connection', () => {
 
     await screen.findByText('Hyperliquid is ready')
     expect(screen.queryByRole('button', { name: 'Save connection' })).toBeNull()
+  })
+
+  it('binds readiness to the exact saved exchange when wallet configs are duplicated', async () => {
+    localStorage.setItem(
+      'nofx.hyperliquid.connection.v6',
+      JSON.stringify({
+        mainWallet: '0xmain',
+        agentAddress: '0xexact-agent',
+        agentApproved: true,
+        builderApproved: true,
+        savedExchangeId: 'exact',
+      })
+    )
+    mocks.getExchangeConfigs.mockResolvedValue([
+      {
+        id: 'wrong',
+        exchange_type: 'hyperliquid',
+        enabled: true,
+        hyperliquidWalletAddr: '0xmain',
+        hyperliquidAgentAddress: '0xwrong-agent',
+        hyperliquidBuilderApproved: true,
+      },
+      {
+        id: 'exact',
+        exchange_type: 'hyperliquid',
+        enabled: true,
+        hyperliquidWalletAddr: '0xmain',
+        hyperliquidAgentAddress: '0xexact-agent',
+        hyperliquidBuilderApproved: true,
+      },
+    ])
+    mocks.getHyperliquidAgent.mockResolvedValue({
+      agent: {
+        name: 'NOFX Agent',
+        address: '0xexact-agent',
+        validUntil: Date.now() + 60_000,
+      },
+      builderApproved: true,
+      agents: [
+        {
+          name: 'NOFX Agent',
+          address: '0xwrong-agent',
+          validUntil: Date.now() + 60_000,
+        },
+        {
+          name: 'NOFX Agent',
+          address: '0xexact-agent',
+          validUntil: Date.now() + 60_000,
+        },
+      ],
+    })
+
+    render(
+      <HyperliquidWalletConnect language="en" isLoggedIn variant="inline" />
+    )
+
+    await screen.findByText('Hyperliquid is ready')
+  })
+
+  it('does not replace a disabled saved exchange with another wallet duplicate', async () => {
+    localStorage.setItem(
+      'nofx.hyperliquid.connection.v6',
+      JSON.stringify({
+        mainWallet: '0xmain',
+        agentAddress: '0xdisabled-agent',
+        agentApproved: true,
+        builderApproved: true,
+        savedExchangeId: 'disabled',
+      })
+    )
+    mocks.getExchangeConfigs.mockResolvedValue([
+      {
+        id: 'enabled-other',
+        exchange_type: 'hyperliquid',
+        enabled: true,
+        hyperliquidWalletAddr: '0xmain',
+        hyperliquidAgentAddress: '0xother-agent',
+        hyperliquidBuilderApproved: true,
+      },
+      {
+        id: 'disabled',
+        exchange_type: 'hyperliquid',
+        enabled: false,
+        hyperliquidWalletAddr: '0xmain',
+        hyperliquidAgentAddress: '0xdisabled-agent',
+        hyperliquidBuilderApproved: true,
+      },
+    ])
+
+    render(
+      <HyperliquidWalletConnect language="en" isLoggedIn variant="inline" />
+    )
+
+    await waitFor(() =>
+      expect(screen.queryByText('Hyperliquid is ready')).toBeNull()
+    )
+    expect(
+      screen.getByRole('button', { name: 'Re-authorize trade-only access' })
+    ).toBeTruthy()
   })
 })

@@ -32,6 +32,47 @@ const (
 	MaxConfidence     = 100
 )
 
+const (
+	AutopilotDefaultMaxPositions          = 8
+	AutopilotMaxPositionValueRatio        = 5.0
+	legacyAutopilotAllocatedPositionRatio = 2.4
+)
+
+// MigrateLegacyAutopilotRiskDefaults upgrades NOFX Autopilot books saved by
+// older releases. Trader deletion intentionally keeps strategies, so without
+// this migration a newly created trader would bind to the same stale strategy
+// and continue using the old limit.
+func MigrateLegacyAutopilotRiskDefaults(config *StrategyConfig) bool {
+	if config == nil {
+		return false
+	}
+
+	config.NormalizeProductSchema()
+	if config.CoinSource.SourceType != "vergex_signal" {
+		return false
+	}
+
+	risk := &config.RiskControl
+	legacyTwoPositionBook := risk.MaxPositions == 2 &&
+		isLegacyAutopilotPositionRatio(risk.BTCETHMaxPositionValueRatio) &&
+		isLegacyAutopilotPositionRatio(risk.AltcoinMaxPositionValueRatio)
+	legacyFourPositionBook := risk.MaxPositions == 4 &&
+		risk.BTCETHMaxPositionValueRatio == legacyAutopilotAllocatedPositionRatio &&
+		risk.AltcoinMaxPositionValueRatio == legacyAutopilotAllocatedPositionRatio
+	if !legacyTwoPositionBook && !legacyFourPositionBook {
+		return false
+	}
+
+	risk.MaxPositions = AutopilotDefaultMaxPositions
+	risk.BTCETHMaxPositionValueRatio = AutopilotMaxPositionValueRatio
+	risk.AltcoinMaxPositionValueRatio = AutopilotMaxPositionValueRatio
+	return true
+}
+
+func isLegacyAutopilotPositionRatio(value float64) bool {
+	return value == 5.0 || value == 10.0
+}
+
 // ClampLimits enforces product-level limits on strategy config to prevent token overflow.
 func (c *StrategyConfig) ClampLimits() {
 	c.NormalizeProductSchema()
@@ -105,6 +146,14 @@ func (c *StrategyConfig) ClampLimits() {
 	}
 	if c.RiskControl.AltcoinMaxPositionValueRatio > MaxPositionRatio {
 		c.RiskControl.AltcoinMaxPositionValueRatio = MaxPositionRatio
+	}
+	if c.CoinSource.SourceType == "vergex_signal" {
+		if c.RiskControl.BTCETHMaxPositionValueRatio > AutopilotMaxPositionValueRatio {
+			c.RiskControl.BTCETHMaxPositionValueRatio = AutopilotMaxPositionValueRatio
+		}
+		if c.RiskControl.AltcoinMaxPositionValueRatio > AutopilotMaxPositionValueRatio {
+			c.RiskControl.AltcoinMaxPositionValueRatio = AutopilotMaxPositionValueRatio
+		}
 	}
 
 	// Clamp risk parameters and entry requirements.
@@ -1014,15 +1063,15 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			PriceRankingLimit:      10,
 		},
 		RiskControl: RiskControlConfig{
-			MaxPositions:                 4,   // Four-position default book (CODE ENFORCED)
-			BTCETHMaxLeverage:            10,  // Moderate leverage: a wide (-5%) stop is ~-50% margin, survivable, not an instant liquidation
-			AltcoinMaxLeverage:           10,  // Moderate leverage: a wide (-5%) stop is ~-50% margin, survivable, not an instant liquidation
-			BTCETHMaxPositionValueRatio:  2.4, // Four positions total ~9.6x notional, leaving execution overhead at 10x leverage
-			AltcoinMaxPositionValueRatio: 2.4, // Four positions total ~9.6x notional, leaving execution overhead at 10x leverage
-			MaxMarginUsage:               1.0, // Claw402 Autopilot intentionally uses full margin when opening
-			MinPositionSize:              12,  // Min 12 USDT per position (CODE ENFORCED)
-			MinRiskRewardRatio:           3.0, // Min 3:1 profit/loss ratio (AI guided)
-			MinConfidence:                78,  // Min 78% confidence (AI guided)
+			MaxPositions:                 AutopilotDefaultMaxPositions,   // Eight-position default book (CODE ENFORCED)
+			BTCETHMaxLeverage:            10,                             // Moderate leverage: a wide (-5%) stop is ~-50% margin, survivable, not an instant liquidation
+			AltcoinMaxLeverage:           10,                             // Moderate leverage: a wide (-5%) stop is ~-50% margin, survivable, not an instant liquidation
+			BTCETHMaxPositionValueRatio:  AutopilotMaxPositionValueRatio, // Per-position hard cap = equity × 5
+			AltcoinMaxPositionValueRatio: AutopilotMaxPositionValueRatio, // Per-position hard cap = equity × 5
+			MaxMarginUsage:               1.0,                            // Claw402 Autopilot intentionally uses full margin when opening
+			MinPositionSize:              12,                             // Min 12 USDT per position (CODE ENFORCED)
+			MinRiskRewardRatio:           3.0,                            // Min 3:1 profit/loss ratio (AI guided)
+			MinConfidence:                78,                             // Min 78% confidence (AI guided)
 		},
 	}
 

@@ -47,6 +47,12 @@ interface FlowState {
   reusedSavedExchange?: boolean
 }
 
+interface ServerReadyProof {
+  exchangeId: string
+  wallet: string
+  agent: string
+}
+
 const STORAGE_KEY = 'nofx.hyperliquid.connection.v6'
 const AGENT_NAME = 'NOFX Agent'
 // Hyperliquid caps agent validity at 180 days and otherwise defaults to ~90 days.
@@ -122,6 +128,9 @@ export function HyperliquidWalletConnect({
   const [error, setError] = useState('')
   const [state, setState] = useState<FlowState>(() => getSavedState())
   const currentMainWalletRef = useRef(state.mainWallet)
+  const reconciliationGenerationRef = useRef(0)
+  const agentRefreshGenerationRef = useRef(0)
+  const serverProofGenerationRef = useRef(0)
   const walletProviderRef = useRef<WalletProvider>()
   currentMainWalletRef.current = state.mainWallet
   const [account, setAccount] = useState<HyperliquidAccountSummary | null>(null)
@@ -133,11 +142,10 @@ export function HyperliquidWalletConnect({
   const [walletProviders, setWalletProviders] = useState<WalletProvider[]>([])
   const [selectedWalletProvider, setSelectedWalletProvider] =
     useState<WalletProvider>()
-  // Address of a fully-authorized hyperliquid exchange saved on the SERVER.
-  // The local FlowState lives in this browser's localStorage, so a fresh
-  // browser would otherwise show the red "Connect" CTA even though trading
-  // authorization is complete and the bot is running.
-  const [serverExchangeAddr, setServerExchangeAddr] = useState('')
+  // Exact server config whose saved agent and builder authorization were
+  // verified live. Readiness must bind all three identities, not just wallet.
+  const [serverReadyProof, setServerReadyProof] =
+    useState<ServerReadyProof | null>(null)
   const text = useMemo(
     () => ({
       title: language === 'zh' ? 'Hyperliquid Wallet' : 'Hyperliquid Wallet',
@@ -226,75 +234,165 @@ export function HyperliquidWalletConnect({
 
   useEffect(() => {
     if (!isLoggedIn) {
-      setServerExchangeAddr('')
+      serverProofGenerationRef.current++
+      setServerReadyProof(null)
       return
     }
+    const generation = ++serverProofGenerationRef.current
     let cancelled = false
-    api
-      .getExchangeConfigs()
-      .then((configs) => {
-        if (cancelled) return
-        const ready = configs.find(
+    void (async () => {
+      try {
+        const configs = await api.getExchangeConfigs()
+        const currentWallet = normalizeAddress(state.mainWallet || '')
+        let candidates = configs.filter(
           (exchange) =>
             exchange.exchange_type === 'hyperliquid' &&
             exchange.enabled &&
             Boolean(exchange.hyperliquidBuilderApproved) &&
-            (exchange.hyperliquidWalletAddr || '').trim() !== ''
+            Boolean(exchange.hyperliquidAgentAddress) &&
+            (exchange.hyperliquidWalletAddr || '').trim() !== '' &&
+            (!currentWallet ||
+              normalizeAddress(exchange.hyperliquidWalletAddr || '') ===
+                currentWallet)
         )
-        setServerExchangeAddr(ready?.hyperliquidWalletAddr || '')
-      })
-      .catch(() => undefined)
+        candidates = state.savedExchangeId
+          ? candidates.filter(
+              (exchange) => exchange.id === state.savedExchangeId
+            )
+          : candidates.length === 1
+            ? candidates
+            : []
+        for (const exchange of candidates) {
+          try {
+            const response = await api.getHyperliquidAgent(
+              exchange.hyperliquidWalletAddr!
+            )
+            const savedAgentAddress = normalizeAddress(
+              exchange.hyperliquidAgentAddress || ''
+            )
+            const approved = response.agents.some(
+              (agent) =>
+                normalizeAddress(agent.address) === savedAgentAddress &&
+                agent.validUntil > Date.now()
+            )
+            if (approved && response.builderApproved) {
+              if (
+                !cancelled &&
+                serverProofGenerationRef.current === generation
+              ) {
+                setServerReadyProof({
+                  exchangeId: exchange.id,
+                  wallet: exchange.hyperliquidWalletAddr || '',
+                  agent: exchange.hyperliquidAgentAddress || '',
+                })
+              }
+              return
+            }
+          } catch {
+            continue
+          }
+        }
+        if (!cancelled && serverProofGenerationRef.current === generation)
+          setServerReadyProof(null)
+      } catch {
+        if (!cancelled && serverProofGenerationRef.current === generation)
+          setServerReadyProof(null)
+      }
+    })()
     return () => {
       cancelled = true
     }
-  }, [isLoggedIn])
+  }, [isLoggedIn, state.mainWallet, state.savedExchangeId])
 
   useEffect(() => {
     if (!isLoggedIn || !state.mainWallet) return
+    const mainWallet = state.mainWallet
+    const generation = ++reconciliationGenerationRef.current
     let cancelled = false
-    api
-      .getExchangeConfigs()
-      .then((configs) => {
-        if (cancelled) return
-        const existing = configs.find(
+    void (async () => {
+      try {
+        const [configs, agentResponse] = await Promise.all([
+          api.getExchangeConfigs(),
+          api.getHyperliquidAgent(mainWallet),
+        ])
+        if (cancelled || reconciliationGenerationRef.current !== generation)
+          return
+        const eligible = configs.filter(
           (exchange) =>
             exchange.exchange_type === 'hyperliquid' &&
+            exchange.enabled &&
             normalizeAddress(exchange.hyperliquidWalletAddr || '') ===
-              normalizeAddress(state.mainWallet!)
+              normalizeAddress(mainWallet)
         )
-        if (!existing) return
+        const existing = state.savedExchangeId
+          ? eligible.find((exchange) => exchange.id === state.savedExchangeId)
+          : eligible.length === 1
+            ? eligible[0]
+            : undefined
+        if (!existing) {
+          setAgentInfo(null)
+          setState((prev) =>
+            normalizeAddress(prev.mainWallet || '') ===
+            normalizeAddress(mainWallet)
+              ? {
+                  ...prev,
+                  agentAddress: undefined,
+                  agentPrivateKey: undefined,
+                  agentApproved: false,
+                  builderApproved: false,
+                  savedExchangeId: undefined,
+                  reusedSavedExchange: false,
+                }
+              : prev
+          )
+          return
+        }
+        const savedAgentAddress = normalizeAddress(
+          existing.hyperliquidAgentAddress || ''
+        )
+        const approvedAgent = savedAgentAddress
+          ? agentResponse.agents.find(
+              (agent) =>
+                normalizeAddress(agent.address) === savedAgentAddress &&
+                agent.validUntil > Date.now()
+            ) || null
+          : null
+        setAgentInfo(approvedAgent)
         setState((prev) => {
           if (
             normalizeAddress(prev.mainWallet || '') !==
-            normalizeAddress(state.mainWallet!)
-          )
-            return prev
-          const serverBuilderApproved = Boolean(
-            existing.hyperliquidBuilderApproved
-          )
-          if (
-            prev.savedExchangeId === existing.id &&
-            prev.agentApproved === true &&
-            prev.builderApproved === serverBuilderApproved &&
-            prev.reusedSavedExchange === true
+            normalizeAddress(mainWallet)
           ) {
             return prev
           }
           return {
             ...prev,
+            agentAddress: savedAgentAddress || undefined,
             agentPrivateKey: undefined,
-            agentApproved: true,
-            builderApproved: serverBuilderApproved,
+            agentApproved: Boolean(approvedAgent),
+            builderApproved: Boolean(
+              existing.hyperliquidBuilderApproved &&
+              agentResponse.builderApproved
+            ),
             savedExchangeId: existing.id,
             reusedSavedExchange: true,
           }
         })
-      })
-      .catch(() => undefined)
+      } catch {
+        if (!cancelled) {
+          setState((prev) =>
+            normalizeAddress(prev.mainWallet || '') ===
+            normalizeAddress(mainWallet)
+              ? { ...prev, agentApproved: false }
+              : prev
+          )
+        }
+      }
+    })()
     return () => {
       cancelled = true
     }
-  }, [isLoggedIn, state.mainWallet])
+  }, [isLoggedIn, state.mainWallet, state.savedExchangeId])
 
   useEffect(() => {
     const subscriptions = walletProviders.map((provider) => {
@@ -337,10 +435,21 @@ export function HyperliquidWalletConnect({
     }
   }, [open, state.mainWallet])
 
-  async function refreshAgentInfo(address = state.mainWallet) {
-    if (!address) return
+  async function refreshAgentInfo(
+    address = state.mainWallet,
+    expectedAgentAddress = state.agentAddress,
+    expectedBuilderApproved = state.builderApproved,
+    expectedExchangeId = state.savedExchangeId
+  ): Promise<boolean> {
+    if (!address) return false
+    // A direct live refresh supersedes every older readiness lookup, not just
+    // older calls to this function.
+    reconciliationGenerationRef.current++
+    serverProofGenerationRef.current++
+    const generation = ++agentRefreshGenerationRef.current
     const requestedAddress = normalizeAddress(address)
     setAgentInfoLoading(true)
+    setServerReadyProof(null)
     if (
       normalizeAddress(currentMainWalletRef.current || '') === requestedAddress
     ) {
@@ -348,19 +457,63 @@ export function HyperliquidWalletConnect({
     }
     try {
       const res = await api.getHyperliquidAgent(address)
+      if (agentRefreshGenerationRef.current !== generation) return false
+      const savedAgentAddress = normalizeAddress(expectedAgentAddress || '')
+      const approvedAgent = savedAgentAddress
+        ? res.agents.find(
+            (agent) =>
+              normalizeAddress(agent.address) === savedAgentAddress &&
+              agent.validUntil > Date.now()
+          ) || null
+        : null
+      const agentApproved = Boolean(approvedAgent)
+      const builderApproved = Boolean(
+        expectedBuilderApproved && res.builderApproved
+      )
+      const liveReady = agentApproved && builderApproved
       if (
         normalizeAddress(currentMainWalletRef.current || '') ===
         requestedAddress
       ) {
-        setAgentInfo(res.agent)
+        setAgentInfo(approvedAgent)
+        setState((prev) => {
+          if (
+            normalizeAddress(prev.mainWallet || '') !== requestedAddress ||
+            normalizeAddress(prev.agentAddress || '') !== savedAgentAddress
+          ) {
+            return prev
+          }
+          return {
+            ...prev,
+            agentApproved,
+            builderApproved,
+          }
+        })
+        setServerReadyProof(
+          liveReady && expectedExchangeId && expectedAgentAddress
+            ? {
+                exchangeId: expectedExchangeId,
+                wallet: address,
+                agent: expectedAgentAddress,
+              }
+            : null
+        )
       }
+      return liveReady
     } catch {
       if (
         normalizeAddress(currentMainWalletRef.current || '') ===
         requestedAddress
       ) {
         setAgentInfo(null)
+        setServerReadyProof(null)
+        setState((prev) =>
+          normalizeAddress(prev.mainWallet || '') === requestedAddress
+            ? { ...prev, agentApproved: false, builderApproved: false }
+            : prev
+        )
       }
+      return false
     } finally {
       if (
         normalizeAddress(currentMainWalletRef.current || '') ===
@@ -393,14 +546,36 @@ export function HyperliquidWalletConnect({
   async function reuseSavedExchangeIfPresent(address: string) {
     if (!isLoggedIn) return false
     try {
-      const configs = await api.getExchangeConfigs()
-      const existing = configs.find(
+      const [configs, agentResponse] = await Promise.all([
+        api.getExchangeConfigs(),
+        api.getHyperliquidAgent(address),
+      ])
+      const eligible = configs.filter(
         (exchange) =>
           exchange.exchange_type === 'hyperliquid' &&
+          exchange.enabled &&
           normalizeAddress(exchange.hyperliquidWalletAddr || '') ===
             normalizeAddress(address)
       )
+      const existing = serverReadyProof?.exchangeId
+        ? eligible.find(
+            (exchange) => exchange.id === serverReadyProof.exchangeId
+          )
+        : eligible.length === 1
+          ? eligible[0]
+          : undefined
       if (!existing) return false
+      const savedAgentAddress = normalizeAddress(
+        existing.hyperliquidAgentAddress || ''
+      )
+      const approvedAgent = savedAgentAddress
+        ? agentResponse.agents.find(
+            (agent) =>
+              normalizeAddress(agent.address) === savedAgentAddress &&
+              agent.validUntil > Date.now()
+          ) || null
+        : null
+      setAgentInfo(approvedAgent)
       setState((prev) => {
         if (
           normalizeAddress(prev.mainWallet || '') !== normalizeAddress(address)
@@ -409,11 +584,14 @@ export function HyperliquidWalletConnect({
         }
         return {
           ...prev,
+          agentAddress: savedAgentAddress || undefined,
           agentPrivateKey: undefined,
-          agentApproved: true,
+          agentApproved: Boolean(approvedAgent),
           // Existing configs default to false in the backend unless the exact
           // approveBuilderFee flow has already persisted a successful approval.
-          builderApproved: Boolean(existing.hyperliquidBuilderApproved),
+          builderApproved: Boolean(
+            existing.hyperliquidBuilderApproved && agentResponse.builderApproved
+          ),
           savedExchangeId: existing.id,
           reusedSavedExchange: true,
         }
@@ -424,19 +602,26 @@ export function HyperliquidWalletConnect({
     }
   }
 
-  const savedReady = Boolean(state.savedExchangeId)
-  const agentReady = Boolean(state.agentAddress || savedReady)
-  const agentApprovedReady = Boolean(state.agentApproved || savedReady)
+  const agentReady = Boolean(state.agentAddress)
+  const agentApprovedReady = Boolean(state.agentApproved)
   const builderReady = Boolean(state.builderApproved)
 
   const complete = Boolean(
-    state.mainWallet && state.savedExchangeId && state.builderApproved
+    state.mainWallet &&
+    state.savedExchangeId &&
+    state.agentApproved &&
+    state.builderApproved &&
+    serverReadyProof?.exchangeId === state.savedExchangeId &&
+    normalizeAddress(serverReadyProof?.wallet || '') ===
+      normalizeAddress(state.mainWallet) &&
+    normalizeAddress(serverReadyProof?.agent || '') ===
+      normalizeAddress(state.agentAddress || '')
   )
   // Trigger shows "connected" when either this browser finished the flow or
   // the server already holds a fully-authorized exchange.
   const connectedAddr = complete
     ? state.mainWallet
-    : serverExchangeAddr || undefined
+    : serverReadyProof?.wallet || undefined
   const connectionProgress = [
     { label: 'Wallet', done: Boolean(state.mainWallet) },
     {
@@ -453,13 +638,13 @@ export function HyperliquidWalletConnect({
         ? 'Approve trade-only access · 1 of 2'
         : !builderReady
           ? 'Finish authorization · 2 of 2'
-          : !state.savedExchangeId
-            ? 'Save the connection to NOFX'
+          : !complete
+            ? 'Verify the saved connection'
             : 'Hyperliquid is ready'
 
   async function connectWallet() {
     setError('')
-    const expectedWallet = serverExchangeAddr || state.mainWallet
+    const expectedWallet = serverReadyProof?.wallet || state.mainWallet
     if (walletProviders.length > 0 && !selectedWalletProvider) {
       setError('Choose the wallet extension you want to connect.')
       return
@@ -485,13 +670,13 @@ export function HyperliquidWalletConnect({
       if (!first) throw new Error('Wallet returned no account')
       const normalized = normalizeAddress(first)
       if (
-        serverExchangeAddr &&
-        normalized !== normalizeAddress(serverExchangeAddr)
+        serverReadyProof?.wallet &&
+        normalized !== normalizeAddress(serverReadyProof.wallet)
       ) {
         currentMainWalletRef.current = undefined
         setState({})
         throw new Error(
-          `Connected wallet ${shortAddress(normalized)} does not match the configured Hyperliquid account ${shortAddress(serverExchangeAddr)}. Switch the active account in your wallet extension and retry.`
+          `Connected wallet ${shortAddress(normalized)} does not match the configured Hyperliquid account ${shortAddress(serverReadyProof.wallet)}. Switch the active account in your wallet extension and retry.`
         )
       }
       walletProviderRef.current = provider
@@ -669,8 +854,38 @@ export function HyperliquidWalletConnect({
     }
     const walletSnapshot = state.mainWallet
     if (!walletSnapshot) return
+    reconciliationGenerationRef.current++
+    agentRefreshGenerationRef.current++
+    serverProofGenerationRef.current++
+    setServerReadyProof(null)
+    setAgentInfo(null)
+    setState((prev) => ({
+      ...prev,
+      agentApproved: false,
+      builderApproved: false,
+    }))
     setBusy(true)
     try {
+      const configs = await api.getExchangeConfigs()
+      const eligible = configs.filter(
+        (exchange) =>
+          exchange.exchange_type === 'hyperliquid' &&
+          exchange.enabled &&
+          normalizeAddress(exchange.hyperliquidWalletAddr || '') ===
+            normalizeAddress(walletSnapshot)
+      )
+      const existing = state.savedExchangeId
+        ? eligible.find((exchange) => exchange.id === state.savedExchangeId)
+        : eligible.length === 1
+          ? eligible[0]
+          : undefined
+      if (!existing) {
+        throw new Error(
+          eligible.length > 1
+            ? 'Multiple enabled Hyperliquid configs match this wallet. Select the exact saved connection before renewing.'
+            : 'No matching enabled NOFX config was found. Save the connection before renewing its agent.'
+        )
+      }
       const wallet = await api.generateWallet()
       const newAgentAddress = normalizeAddress(wallet.address)
       const nonce = Date.now()
@@ -697,8 +912,8 @@ export function HyperliquidWalletConnect({
         agentPrivateKey: wallet.private_key,
         agentApproved: true,
         builderApproved: false,
-        savedExchangeId: undefined,
-        reusedSavedExchange: false,
+        savedExchangeId: existing.id,
+        reusedSavedExchange: true,
       }
       setState((prev) =>
         normalizeAddress(prev.mainWallet || '') ===
@@ -706,17 +921,6 @@ export function HyperliquidWalletConnect({
           ? { ...prev, ...recoveryState }
           : prev
       )
-      const existing = (await api.getExchangeConfigs()).find(
-        (exchange) =>
-          exchange.exchange_type === 'hyperliquid' &&
-          normalizeAddress(exchange.hyperliquidWalletAddr || '') ===
-            normalizeAddress(walletSnapshot)
-      )
-      if (!existing) {
-        throw new Error(
-          'New agent approved, but no matching NOFX config was found. Use "Save connection" to store it.'
-        )
-      }
       assertCurrentWallet(walletSnapshot)
       const existingBuilderApproved = Boolean(
         existing.hyperliquidBuilderApproved
@@ -750,7 +954,12 @@ export function HyperliquidWalletConnect({
           : prev
       )
       toast.success('Agent renewed (new agent, valid 180 days)')
-      await refreshAgentInfo(walletSnapshot)
+      await refreshAgentInfo(
+        walletSnapshot,
+        newAgentAddress,
+        existingBuilderApproved,
+        existing.id
+      )
     } catch (err) {
       setError(getWalletErrorMessage(err, 'Agent renewal failed'))
     } finally {
@@ -828,6 +1037,12 @@ export function HyperliquidWalletConnect({
             }
           : prev
       )
+      await refreshAgentInfo(
+        walletSnapshot,
+        state.agentAddress,
+        true,
+        createdExchangeId || state.savedExchangeId
+      )
       await refreshAfterSave()
       toast.success('Trading authorization finalized')
     } catch (err) {
@@ -859,12 +1074,24 @@ export function HyperliquidWalletConnect({
     if (!walletSnapshot || !state.builderApproved) return
     setBusy(true)
     try {
-      const existing = (await api.getExchangeConfigs()).find(
+      const configs = await api.getExchangeConfigs()
+      const eligible = configs.filter(
         (exchange) =>
           exchange.exchange_type === 'hyperliquid' &&
+          exchange.enabled &&
           normalizeAddress(exchange.hyperliquidWalletAddr || '') ===
             normalizeAddress(walletSnapshot)
       )
+      const existing = state.savedExchangeId
+        ? eligible.find((exchange) => exchange.id === state.savedExchangeId)
+        : eligible.length === 1
+          ? eligible[0]
+          : undefined
+      if (!state.savedExchangeId && eligible.length > 1) {
+        throw new Error(
+          'Multiple enabled Hyperliquid configs match this wallet. Select the exact connection before saving.'
+        )
+      }
       assertCurrentWallet(walletSnapshot)
       if (existing) {
         await api.updateExchangeConfigsEncrypted({
@@ -898,6 +1125,12 @@ export function HyperliquidWalletConnect({
             ? 'Hyperliquid account updated in NOFX'
             : 'Existing Hyperliquid account authorization updated'
         )
+        await refreshAgentInfo(
+          walletSnapshot,
+          state.agentAddress,
+          state.builderApproved,
+          existing.id
+        )
         await refreshAfterSave()
         return
       }
@@ -928,6 +1161,12 @@ export function HyperliquidWalletConnect({
           : prev
       )
       toast.success('Hyperliquid account saved to NOFX')
+      await refreshAgentInfo(
+        walletSnapshot,
+        state.agentAddress,
+        state.builderApproved,
+        result.id
+      )
       await refreshAfterSave()
     } catch (err) {
       setError(getWalletErrorMessage(err, 'Failed to save Hyperliquid account'))
@@ -1047,9 +1286,9 @@ export function HyperliquidWalletConnect({
                   <span className="font-semibold text-nofx-text">
                     Choose wallet
                   </span>
-                  {serverExchangeAddr && (
+                  {serverReadyProof?.wallet && (
                     <span className="text-nofx-text-muted">
-                      Expected {shortAddress(serverExchangeAddr)}
+                      Expected {shortAddress(serverReadyProof.wallet)}
                     </span>
                   )}
                 </div>
@@ -1146,8 +1385,16 @@ export function HyperliquidWalletConnect({
                 {agentReady && !agentApprovedReady && (
                   <ActionButton
                     busy={busy}
-                    onClick={approveAgent}
-                    label="Approve trade-only access"
+                    onClick={
+                      state.reusedSavedExchange || state.savedExchangeId
+                        ? renewAgentAuthorization
+                        : approveAgent
+                    }
+                    label={
+                      state.reusedSavedExchange || state.savedExchangeId
+                        ? 'Re-authorize trade-only access'
+                        : 'Approve trade-only access'
+                    }
                   />
                 )}
                 {agentApprovedReady && !builderReady && (
