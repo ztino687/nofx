@@ -225,12 +225,13 @@ func (client *Client) SetAuthHeader(reqHeader http.Header) {
 }
 
 // modelSupportsCustomTemperature reports whether the target model accepts a
-// non-default temperature. OpenAI reasoning models (gpt-5 family, o-series)
+// non-default temperature. OpenAI reasoning models (gpt-5/6 families, o-series)
 // reject any value other than the default and fail the whole request with
 // "unsupported_value", so temperature must be omitted for them.
 func modelSupportsCustomTemperature(model string) bool {
 	m := strings.ToLower(model)
 	return !strings.HasPrefix(m, "gpt-5") &&
+		!strings.HasPrefix(m, "gpt-6") &&
 		!strings.HasPrefix(m, "o1") &&
 		!strings.HasPrefix(m, "o3") &&
 		!strings.HasPrefix(m, "o4")

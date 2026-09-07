@@ -57,6 +57,7 @@ const (
 // Must stay in sync with the claw402 catalog (GET /api/v1/catalog).
 var claw402ModelEndpoints = map[string]string{
 	// OpenAI
+	"gpt-6":         "/api/v1/ai/openai/chat/6",
 	"gpt-5.6":       "/api/v1/ai/openai/chat/5.6",
 	"gpt-5.6-terra": "/api/v1/ai/openai/chat/5.6-terra",
 	"gpt-5.6-luna":  "/api/v1/ai/openai/chat/5.6-luna",

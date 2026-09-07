@@ -24,6 +24,7 @@ var modelPrices = map[string]float64{
 	"deepseek-reasoner": 0.005,
 	"deepseek-v4-flash": 0.003,
 	"deepseek-v4-pro":   0.01,
+	"gpt-6":             0.24,
 	"gpt-5.6":           0.06,
 	"gpt-5.6-terra":     0.03,
 	"gpt-5.6-luna":      0.012,
@@ -44,17 +45,25 @@ func GetModelPrice(model string) float64 {
 // claw402 gateway pricing config (providers/*.yaml). Used to derive the actual
 // upto-settled cost from streamed token usage, where the gateway cannot
 // deliver the settlement header (SSE headers are flushed before usage is known).
-var modelTokenPrices = map[string]struct{ In, Out float64 }{
-	"gpt-5.6":           {5, 30},
-	"gpt-5.6-terra":     {2.5, 15},
-	"gpt-5.6-luna":      {1, 6},
-	"claude-fable":      {10, 50},
-	"claude-opus":       {5, 25},
-	"deepseek-v4-flash": {0.14, 0.28},
-	"deepseek-v4-pro":   {1.74, 3.48},
-	"deepseek":          {0.27, 1.1},
-	"deepseek-reasoner": {0.55, 2.19},
-	"glm-5":             {0.6, 2},
+type modelTokenPrice struct {
+	In, Out        float64
+	LongContextAt  int
+	LongContextIn  float64
+	LongContextOut float64
+}
+
+var modelTokenPrices = map[string]modelTokenPrice{
+	"gpt-6":             {In: 12.5, Out: 50, LongContextAt: 272000, LongContextIn: 25, LongContextOut: 75},
+	"gpt-5.6":           {In: 5, Out: 30},
+	"gpt-5.6-terra":     {In: 2.5, Out: 15},
+	"gpt-5.6-luna":      {In: 1, Out: 6},
+	"claude-fable":      {In: 10, Out: 50},
+	"claude-opus":       {In: 5, Out: 25},
+	"deepseek-v4-flash": {In: 0.14, Out: 0.28},
+	"deepseek-v4-pro":   {In: 1.74, Out: 3.48},
+	"deepseek":          {In: 0.27, Out: 1.1},
+	"deepseek-reasoner": {In: 0.55, Out: 2.19},
+	"glm-5":             {In: 0.6, Out: 2},
 }
 
 // Gateway upto settlement formula constants (see claw402 token_estimate
@@ -72,7 +81,11 @@ func ComputeUsageCost(model string, promptTokens, completionTokens int) (float64
 	if !ok {
 		return 0, false
 	}
-	cost := (float64(promptTokens)*p.In + float64(completionTokens)*p.Out) / 1e6 * uptoSafetyMargin
+	inputPrice, outputPrice := p.In, p.Out
+	if p.LongContextAt > 0 && promptTokens > p.LongContextAt {
+		inputPrice, outputPrice = p.LongContextIn, p.LongContextOut
+	}
+	cost := (float64(promptTokens)*inputPrice + float64(completionTokens)*outputPrice) / 1e6 * uptoSafetyMargin
 	if cost < uptoMinPriceUSD {
 		cost = uptoMinPriceUSD
 	}
