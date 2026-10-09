@@ -1248,6 +1248,13 @@ func (e *StrategyEngine) FetchVergexDataBatch(ctx context.Context, symbols []str
 	return result
 }
 
+func vergexDataForSymbol(ctx *Context, symbol string) *vergex.MarketAnalysis {
+	if data := ctx.VergexDataMap[symbol]; data != nil {
+		return data
+	}
+	return ctx.VergexDataMap[vergexDetailSymbolForLookup("all", symbol)]
+}
+
 func vergexDetailSymbolForLookup(marketType, symbol string) string {
 	return vergex.TradableSymbolForMarket(marketType, symbol)
 }
@@ -1271,9 +1278,9 @@ func (e *StrategyEngine) populateVergexDetailData(ctx context.Context, analysis 
 		out <- endpointResult{name: name, body: body, err: err}
 	}
 
-	out := make(chan endpointResult, 3)
+	out := make(chan endpointResult, 4)
 	var wg sync.WaitGroup
-	wg.Add(3)
+	wg.Add(4)
 	go func() {
 		defer wg.Done()
 		run("direction-current", func(requestCtx context.Context) (json.RawMessage, error) {
@@ -1290,6 +1297,12 @@ func (e *StrategyEngine) populateVergexDetailData(ctx context.Context, analysis 
 		defer wg.Done()
 		run("heatmap", func(requestCtx context.Context) (json.RawMessage, error) {
 			return e.fetchVergexHeatmapWithFallback(requestCtx, query)
+		}, out)
+	}()
+	go func() {
+		defer wg.Done()
+		run("winrate", func(requestCtx context.Context) (json.RawMessage, error) {
+			return e.fetchVergexWinrateWithFallback(requestCtx, query)
 		}, out)
 	}()
 	wg.Wait()
@@ -1318,8 +1331,46 @@ func (e *StrategyEngine) populateVergexDetailData(ctx context.Context, analysis 
 			} else {
 				analysis.Heatmap = item.body
 			}
+		case "winrate":
+			if item.err != nil {
+				logger.Warnf("⚠️ Failed to fetch Vergex win-rate matrix for %s: %v", analysis.Symbol, item.err)
+				analysis.WinrateError = item.err.Error()
+			} else {
+				analysis.Winrate = item.body
+			}
 		}
 	}
+}
+
+// fetchVergexWinrateWithFallback pulls the holder win-rate matrix with the
+// near-price banding (±8% of the current price) that concentrates the grid on
+// the actionable zone around price, retrying across marketType/chain
+// candidates exactly like the heatmap fetch.
+func (e *StrategyEngine) fetchVergexWinrateWithFallback(ctx context.Context, query vergex.Query) (json.RawMessage, error) {
+	var lastErr error
+	for idx, candidate := range vergexDetailQueryCandidates(query) {
+		body, err := e.vergexClient.GetHolderWinrateMap(ctx, vergex.WinrateQuery{
+			MarketType:    candidate.MarketType,
+			Symbol:        candidate.Symbol,
+			Chain:         candidate.Chain,
+			WinMin:        0,
+			WinMax:        100,
+			CostMin:       92,
+			CostMax:       108,
+			MinRoundTrips: 1,
+		})
+		if err == nil {
+			if idx > 0 {
+				logger.Infof("✅ Vergex win-rate matrix succeeded with fallback marketType=%s chain=%s", candidate.MarketType, withDefaultText(candidate.Chain, "default"))
+			}
+			return body, nil
+		}
+		lastErr = err
+		if !isRetryableVergexDetailError(err) {
+			break
+		}
+	}
+	return nil, lastErr
 }
 
 func (e *StrategyEngine) fetchVergexHeatmapWithFallback(ctx context.Context, query vergex.Query) (json.RawMessage, error) {
