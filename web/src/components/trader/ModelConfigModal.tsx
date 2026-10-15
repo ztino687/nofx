@@ -107,9 +107,9 @@ export function ModelConfigModal({
   ]
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 overflow-y-auto backdrop-blur-sm">
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 overflow-y-auto backdrop-blur-xs">
       <div
-        className="rounded-2xl w-full max-w-[52rem] relative my-8 shadow-2xl bg-nofx-bg-lighter"
+        className="rounded-2xl w-full max-w-208 relative my-8 shadow-2xl bg-nofx-bg-lighter"
         style={{
           maxHeight: 'calc(100vh - 4rem)',
         }}
@@ -291,7 +291,7 @@ function ModelSelectionStep({
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={(e) => e.stopPropagation()}
-                    className="ml-1.5 text-[10px] font-normal px-1.5 py-0.5 rounded"
+                    className="ml-1.5 text-[10px] font-normal px-1.5 py-0.5 rounded-sm"
                     style={{
                       color: '#E0483B',
                       background: 'rgba(224, 72, 59, 0.1)',
@@ -574,6 +574,11 @@ function Claw402ConfigForm({
         </label>
         <div className="text-xs mb-2" style={{ color: '#8A8478' }}>
           {t('modelConfig.allModelsUnified', language)}
+          <p className="mt-1">
+            {language === 'zh'
+              ? '参考价含平台加价，另加每次 $0.0012 结算服务费。DeepSeek 展示峰时价；GPT 超过 272K 输入时全量输入 ×2、输出 ×1.5。以实时授权上限和已验证实扣为准。'
+              : 'Indicative retail rates plus $0.0012 per-request settlement fee. DeepSeek shows peak rates; GPT above 272K input uses full-request input ×2 / output ×1.5. The live quote and verified receipt prevail.'}
+          </p>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           {CLAW402_MODELS.map((m) => {
@@ -619,7 +624,7 @@ function Claw402ConfigForm({
                     </div>
                     {m.isNew ? (
                       <span
-                        className="shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em]"
+                        className="shrink-0 rounded-sm px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em]"
                         style={{
                           color: '#2E8B57',
                           background: 'rgba(46, 139, 87, 0.12)',
@@ -780,7 +785,7 @@ function Claw402ConfigForm({
               </div>
               <div className="flex items-center gap-2 mb-2">
                 <code
-                  className="text-[10px] font-mono break-all select-all flex-1 p-2 rounded"
+                  className="text-[10px] font-mono break-all select-all flex-1 p-2 rounded-sm"
                   style={{ background: '#F1ECE2', color: '#D6433A' }}
                 >
                   {newWalletKey}
@@ -792,7 +797,7 @@ function Claw402ConfigForm({
                     setCopiedAddr(true)
                     setTimeout(() => setCopiedAddr(false), 2000)
                   }}
-                  className="shrink-0 text-[10px] px-2 py-1 rounded"
+                  className="shrink-0 text-[10px] px-2 py-1 rounded-sm"
                   style={{
                     background: 'rgba(214,67,58,0.15)',
                     color: '#D6433A',
@@ -884,7 +889,7 @@ function Claw402ConfigForm({
                         setCopiedAddr(true)
                         setTimeout(() => setCopiedAddr(false), 2000)
                       }}
-                      className="text-[10px] px-1.5 py-0.5 rounded"
+                      className="text-[10px] px-1.5 py-0.5 rounded-sm"
                       style={{
                         background: 'rgba(224,72,59,0.1)',
                         color: '#E0483B',
@@ -922,7 +927,7 @@ function Claw402ConfigForm({
                     <button
                       type="button"
                       onClick={() => setShowDeposit(!showDeposit)}
-                      className="text-[10px] px-2 py-0.5 rounded transition-all"
+                      className="text-[10px] px-2 py-0.5 rounded-sm transition-all"
                       style={{
                         background: 'rgba(46,139,87,0.1)',
                         color: '#2E8B57',
@@ -986,7 +991,7 @@ function Claw402ConfigForm({
                             setCopiedAddr(true)
                             setTimeout(() => setCopiedAddr(false), 2000)
                           }}
-                          className="text-[10px] px-2 py-0.5 rounded"
+                          className="text-[10px] px-2 py-0.5 rounded-sm"
                           style={{
                             background: 'rgba(224,72,59,0.1)',
                             color: '#E0483B',

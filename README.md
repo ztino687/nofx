@@ -31,7 +31,7 @@ Traders compose freely: any model, any of nine exchanges, any strategy. Run seve
 curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bash
 ```
 
-The terminal opens at `http://127.0.0.1:3000`.
+The terminal opens at `http://127.0.0.1:3000`. Local Compose publishes the frontend and API on loopback by default (`NOFX_BIND_ADDRESS=127.0.0.1`). Remote deployments must explicitly configure their bind address and authenticated TLS proxy. Changing this setting only takes effect when containers are recreated.
 
 **First run**
 
@@ -280,3 +280,10 @@ If NOFX is useful to you, a star helps other traders find it.
 [AGPL-3.0](LICENSE)
 
 <sub>Automated trading involves substantial risk. AI-driven strategies are experimental and can lose money. Size positions appropriately, understand each venue, and never trade funds you cannot afford to lose. Full [disclaimer](DISCLAIMER.md).</sub>
+
+## One-time trade planning
+
+The authenticated **交易规划** (`/planning`) workspace combines live charts,
+NOFX-configured AI and explicitly approved real order baskets. Initialize
+`git submodule update --init web/vendor/charting` before building the frontend.
+See [usage, live execution limits and recovery](docs/features/trade-planning.md).

@@ -5,8 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"net/http"
-	"nofx/hook"
 	"nofx/logger"
 	"strings"
 	"sync"
@@ -15,12 +13,15 @@ import (
 	"github.com/adshao/go-binance/v2/futures"
 )
 
+const futuresBrokerID = "KzrpZaP9"
+const futuresBrokerPrefix = "x-" + futuresBrokerID
+
 // getBrOrderID generates unique order ID (for futures contracts)
 // Format: x-{BR_ID}{TIMESTAMP}{RANDOM}
 // Futures limit is 32 characters, use this limit consistently
 // Uses nanosecond timestamp + random number to ensure global uniqueness (collision probability < 10^-20)
 func getBrOrderID() string {
-	brID := "KzrpZaP9" // Futures br ID
+	brID := futuresBrokerID // Shared by automatic and approved planning orders
 
 	// Calculate available space: 32 - len("x-KzrpZaP9") = 32 - 11 = 21 characters
 	// Allocation: 13-digit timestamp + 8-digit random = 21 characters (perfect utilization)
@@ -62,25 +63,9 @@ type FuturesTrader struct {
 }
 
 // NewFuturesTrader creates futures trader
-func NewFuturesTrader(apiKey, secretKey string, testnet bool, userId string) *FuturesTrader {
-	// 设置主网或者测试网
-	futures.UseTestnet = testnet
-	client := futures.NewClient(apiKey, secretKey)
-	// The SDK defaults to http.DefaultClient, which has no timeout — a hung
-	// connection would stall the trading loop indefinitely.
-	client.HTTPClient = &http.Client{Timeout: 30 * time.Second}
-
-	hookRes := hook.HookExec[hook.NewBinanceTraderResult](hook.NEW_BINANCE_TRADER, userId, client)
-	if hookRes != nil && hookRes.GetResult() != nil {
-		client = hookRes.GetResult()
-	}
-
-	// Sync time to avoid "Timestamp ahead" error
-	syncBinanceServerTime(client)
-	trader := &FuturesTrader{
-		client:        client,
-		cacheDuration: 15 * time.Second, // 15-second cache
-	}
+func NewFuturesTrader(apiKey, secretKey string, testnet bool,  userId string) *FuturesTrader {
+	trader := NewExecutionTrader(apiKey, secretKey, userId)
+	syncBinanceServerTime(trader.client)
 
 	// Set dual-side position mode (Hedge Mode)
 	// This is required because the code uses PositionSide (LONG/SHORT)
