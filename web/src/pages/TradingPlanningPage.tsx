@@ -33,6 +33,8 @@ import {
   PlanStructures,
   type PlanCheck,
 } from '../components/planning/PlanStructures'
+import { FrontierOrderBlocker } from '../components/planning/FrontierOrderBlocker'
+import { PlanFunding } from '../components/planning/PlanFunding'
 import { FrontierAccount } from '../components/planning/FrontierAccount'
 import {
   FrontierSetup,
@@ -46,7 +48,7 @@ const states: Record<string, string> = {
   draft: 'Awaiting approval',
   approved: 'Approved',
   running: 'Running',
-  position_open: 'Position open · protected',
+  position_open: 'Position open',
   stopping: 'Stop further entries',
   needs_attention: 'Needs reconciliation',
   completed: 'Completed',
@@ -99,6 +101,7 @@ export function TradingPlanningPage() {
     [planningBusy, setPlanningBusy] = useState(false),
     [status, setStatus] = useState(''),
     [error, setError] = useState(''),
+    [orderNotice, setOrderNotice] = useState(''),
     [price, setPrice] = useState('—'),
     [interval, setInterval] = useState('1h')
   const [trace, setTrace] = useState<ActivityItem[]>([]),
@@ -171,6 +174,22 @@ export function TradingPlanningPage() {
   )
   const run = selectedRun
   const clock = Date.parse(data.now) || Date.now()
+  const blockingRun = data.runs.find(
+    (r) =>
+      r.exchange_id === exchangeID &&
+      [
+        'approved',
+        'starting',
+        'running',
+        'position_open',
+        'stopping',
+        'needs_attention',
+      ].includes(r.state) &&
+      !(r.state === 'approved' && expired(r.plan, clock))
+  )
+  useEffect(() => {
+    setOrderNotice('')
+  }, [exchangeID])
   const reload = useCallback(async () => {
     const next = await planningAPI<PlanningState>('state')
     if (active.current)
@@ -548,6 +567,10 @@ export function TradingPlanningPage() {
     }
   }
   async function reviewWithAccount(plan: Plan) {
+    if (blockingRun) {
+      setError('')
+      return
+    }
     setBusy(true)
     setError('')
     try {
@@ -587,6 +610,26 @@ export function TradingPlanningPage() {
         hash: approved.approval_hash,
       })
       await reload()
+    } catch (e) {
+      setReview(null)
+      setError(e instanceof Error ? e.message : String(e))
+      await reload().catch(() => {})
+    } finally {
+      setBusy(false)
+    }
+  }
+  async function checkPreviousTrade(r: LiveRun) {
+    setBusy(true)
+    setError('')
+    setOrderNotice('')
+    try {
+      const checked = await planningAPI<LiveRun>('check-status', { id: r.id })
+      await reload()
+      setOrderNotice(
+        checked.state === 'completed'
+          ? 'Previous trade is closed. Your account is ready for a new order. Review a plan when you are ready.'
+          : 'Status checked. Review the previous trade and your current positions below.'
+      )
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
       await reload().catch(() => {})
@@ -813,7 +856,31 @@ export function TradingPlanningPage() {
           onSelect={openMarket}
         />
       }
+      {blockingRun && (
+        <FrontierOrderBlocker
+          run={blockingRun}
+          busy={busy}
+          onCheck={() => void checkPreviousTrade(blockingRun)}
+          onView={() => {
+            viewTrade(blockingRun)
+            document
+              .getElementById('frontier-account')
+              ?.scrollIntoView({ behavior: 'smooth' })
+          }}
+          onRevoke={() => void runAction('stop', blockingRun)}
+        />
+      )}
+      {orderNotice && (
+        <p className="frontier-order-notice" role="status">
+          {orderNotice}
+        </p>
+      )}
       {error &&
+        !(
+          blockingRun &&
+          (error.includes('already has an approved or unresolved plan') ||
+            error.includes('An earlier trade is reserving this account'))
+        ) &&
         !trace.some(
           (item) => item.state === 'failed' && item.detail === error
         ) && (
@@ -876,7 +943,7 @@ export function TradingPlanningPage() {
             </label>
             <span>
               {exchangeID
-                ? 'Auto size · current free margin · 1% equity risk cap · 5% margin reserve'
+                ? `Available margin × ${leverage}x · execution costs reserved`
                 : 'Connect an account for automatic sizing'}
             </span>
           </div>
@@ -928,6 +995,7 @@ export function TradingPlanningPage() {
                   </strong>
                 </span>
               </div>
+              <PlanFunding plan={current.plan} />
               <details>
                 <summary>
                   {current.plan.orders.length || 1} child orders · Inspect
@@ -987,7 +1055,7 @@ export function TradingPlanningPage() {
                   {(
                     Object.keys(defaultLimits) as Exclude<
                       keyof Constraints,
-                      'leverage'
+                      'leverage' | 'available_margin'
                     >[]
                   )
                     .filter(
@@ -1026,7 +1094,8 @@ export function TradingPlanningPage() {
                 </div>
                 <p>
                   Live sizing refreshes before planning and review. Leverage is
-                  a ceiling; stop risk and liquidity can reduce size.
+                  applied to current available margin, with execution costs
+                  reserved. Order-book liquidity and rounding can reduce size.
                   Hyperliquid costs must include Builder fees. Gaps, failed
                   protection and slippage may cause losses beyond the estimate.
                 </p>
@@ -1373,7 +1442,9 @@ export function TradingPlanningPage() {
                     disabled={
                       busy ||
                       expired(current.plan, clock) ||
-                      (!!exchangeID && data.accounts[selected] !== exchangeID)
+                      (!!exchangeID &&
+                        data.accounts[selected] !== exchangeID) ||
+                      Boolean(blockingRun)
                     }
                     onClick={() => {
                       if (!exchangeID) setSetupOpen('exchange')
@@ -1384,7 +1455,9 @@ export function TradingPlanningPage() {
                       ? 'Expired; generate a new plan'
                       : !exchangeID
                         ? 'Connect account to trade'
-                        : 'Review order'}
+                        : blockingRun
+                          ? 'Resolve previous trade above'
+                          : 'Review order'}
                   </button>
                 ) : run?.state === 'approved' ? (
                   <>
@@ -1402,7 +1475,10 @@ export function TradingPlanningPage() {
                     </button>
                   </>
                 ) : (
-                  run && (
+                  run &&
+                  !['completed', 'cancelled', 'expired'].includes(
+                    run.state
+                  ) && (
                     <button
                       disabled={busy}
                       onClick={() => runAction('stop', run)}
@@ -1460,6 +1536,7 @@ export function TradingPlanningPage() {
           onManual={manualEntry}
           onBusy={setBusy}
           onRefresh={reload}
+          onCheck={checkPreviousTrade}
         />
         <details className="planning-tools">
           <summary>
@@ -1536,22 +1613,10 @@ export function TradingPlanningPage() {
               {review.orders.length || 1} child orders ·{' '}
               {review.constraints.leverage || 1}x leverage
             </p>
+            <PlanFunding plan={review} />
             <p>
-              Estimated initial margin{' '}
-              {format(
-                String(
-                  (review.orders.length
-                    ? review.orders.reduce(
-                        (sum, order) =>
-                          sum + Number(order.price) * Number(order.quantity),
-                        0
-                      )
-                    : Number(review.idea.entry) * Number(review.quantity)) /
-                    (review.constraints.leverage || 1)
-                )
-              )}{' '}
-              {review.snapshot.quote_asset} · fees reserved separately. Quantity
-              is locked at this review; balance changes require a new review.
+              Quantity is locked at this review; balance changes require a new
+              review.
             </p>
             <details>
               <summary>Execution and protection details</summary>
