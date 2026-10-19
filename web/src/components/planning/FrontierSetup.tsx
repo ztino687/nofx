@@ -1,11 +1,19 @@
+import {
+  apiKeyVenues,
+  defaultMarket,
+  venueName,
+} from '../../lib/frontierAccounts'
+import { accountLabel } from '../../lib/frontierAccounts'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { QRCodeSVG } from 'qrcode.react'
+import { AIWalletBackup } from '../common/AIWalletBackup'
 import type { AIModel, Exchange } from '../../types'
 import { api } from '../../lib/api'
 import { planningAPI } from '../../lib/planning'
+import type { AccountCheck } from '../../lib/frontierWorkspace'
 import { HyperliquidWalletConnect } from '../common/HyperliquidWalletConnect'
 import { ExchangeConfigModal } from '../trader/ExchangeConfigModal'
+import { ModelConfigModal } from '../trader/ModelConfigModal'
 
 export type FeeWalletState =
   | 'checking'
@@ -23,6 +31,11 @@ type Wallet = {
   balance_usdc?: string
   balance_status: string
 }
+const formatBalance = (value: string | undefined) =>
+  Number(value).toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
 export function feeWalletState(wallet: Wallet): FeeWalletState {
   if (!wallet.found || !wallet.enabled) return 'missing'
   if (
@@ -45,6 +58,7 @@ export function FrontierSetup({
   onOpen,
   onRefresh,
   onWalletState,
+  onComplete,
 }: {
   models: AIModel[]
   modelID: string
@@ -54,36 +68,37 @@ export function FrontierSetup({
   loaded: boolean
   open: 'ai' | 'exchange' | null
   onOpen: (step: 'ai' | 'exchange' | null) => void
-  onRefresh: (modelID?: string, venue?: string) => Promise<void>
+  onRefresh: (
+    modelID?: string,
+    venue?: string,
+    accountID?: string
+  ) => Promise<void>
   onWalletState: (state: FeeWalletState) => void
+  onComplete?: (step: 'ai' | 'exchange') => void
 }) {
   const [wallet, setWallet] = useState<Wallet | null>(null)
   const [working, setWorking] = useState(false)
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
-  const [binance, setBinance] = useState(false)
+  const [cex, setCex] = useState(false)
+  const [addingAccount, setAddingAccount] = useState(false)
   const [choice, setChoice] = useState(venue)
+  const [ownAI, setOwnAI] = useState<AIModel[] | null>(null)
+  const [directProviders, setDirectProviders] = useState<AIModel[]>([])
+  const [check, setCheck] = useState<AccountCheck | null>(null)
   const dialog = useRef<HTMLElement>(null)
-  const mounted = useRef(true)
-  const request = useRef(0)
-  const pending = useRef(false)
+  const mounted = useRef(true),
+    request = useRef(0),
+    pending = useRef(false),
+    accountRequest = useRef(0)
   const selectedModel = models.find((m) => m.id === modelID)
   const status = wallet ? feeWalletState(wallet) : 'checking'
   const aiReady =
     !!selectedModel &&
     (selectedModel.provider !== 'claw402' || status === 'ready')
-  const exchangeReady = accounts.some(
-    (a) =>
-      a.id === accountID &&
-      a.exchange_type === venue &&
-      !a.testnet &&
-      (a.exchange_type === 'binance'
-        ? a.has_api_key && a.has_secret_key
-        : a.hyperliquidWalletAddr &&
-          a.hyperliquidBuilderApproved &&
-          a.hyperliquidAgentAddress &&
-          (a.has_hyperliquid_secret || a.has_api_key))
-  )
+  const checked = check?.accountID === accountID ? check : null
+  const exchangeReady = checked?.status === 'verified'
+  const currentAccount = accounts.find((a) => a.id === accountID)
   const refreshWallet = useCallback(async () => {
     if (pending.current) return
     pending.current = true
@@ -105,13 +120,66 @@ export function FrontierSetup({
         onWalletState('unknown')
         setWallet(null)
         setError(
-          'Could not check the AI wallet. Retry without creating another wallet.'
+          'Could not check your AI balance. Retry the balance check before creating another wallet.'
         )
       }
     } finally {
       if (revision === request.current) pending.current = false
     }
   }, [onWalletState, selectedModel?.provider, modelID])
+  const verifyAccount = useCallback(
+    async (background = false) => {
+      const revision = ++accountRequest.current
+      if (!accountID) {
+        setCheck(null)
+        return
+      }
+      setCheck((previous) =>
+        background &&
+        previous?.accountID === accountID &&
+        previous.status === 'verified'
+          ? previous
+          : { accountID, status: 'checking' }
+      )
+      try {
+        const next = await planningAPI<{
+          equity: string
+          available: string
+          position: string
+          open_orders: number
+        }>(
+          `account?exchange_id=${encodeURIComponent(accountID)}&symbol=${defaultMarket(venue)}`
+        )
+        if (
+          !Number.isFinite(Number(next.equity)) ||
+          !Number.isFinite(Number(next.available)) ||
+          next.equity == null ||
+          next.available == null ||
+          String(next.equity).trim() === '' ||
+          String(next.available).trim() === ''
+        )
+          throw new Error(
+            'The exchange did not return a complete balance. Retry verification.'
+          )
+        if (mounted.current && revision === accountRequest.current)
+          setCheck({
+            ...next,
+            accountID,
+            status: 'verified',
+            checkedAt: Date.now(),
+          })
+      } catch (e) {
+        if (mounted.current && revision === accountRequest.current)
+          setCheck({
+            accountID,
+            status: 'unavailable',
+            error:
+              e instanceof Error ? e.message : 'Could not verify the account.',
+          })
+      }
+    },
+    [accountID, venue]
+  )
   useEffect(() => {
     mounted.current = true
     setWallet(null)
@@ -125,27 +193,68 @@ export function FrontierSetup({
     }
   }, [refreshWallet, onWalletState])
   useEffect(() => {
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout>
+    const poll = async (background = false) => {
+      if (!document.hidden) await verifyAccount(background)
+      if (!cancelled && accountID)
+        timer = setTimeout(() => void poll(true), 30000)
+    }
+    void poll()
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+      accountRequest.current++
+    }
+  }, [verifyAccount, accountID])
+  useEffect(() => {
+    if (open !== 'ai') return
+    let cancelled = false
+    void (async () => {
+      try {
+        const supported = await api.getSupportedModels()
+        if (!cancelled)
+          setDirectProviders(
+            supported.filter(
+              (model) =>
+                model.provider !== 'claw402' &&
+                model.id !== 'claw402' &&
+                !model.provider?.startsWith('blockrun')
+            )
+          )
+      } catch {
+        if (!cancelled) setDirectProviders([])
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [open])
+  useEffect(() => {
     if (!open || !wallet?.found || status === 'ready') return
     const timer = window.setInterval(() => {
       if (!document.hidden) void refreshWallet()
     }, 15000)
-    return () => window.clearInterval(timer)
+    return () => clearInterval(timer)
   }, [open, wallet?.found, status, refreshWallet])
   useEffect(() => {
-    if (open === 'exchange') setChoice(venue)
-  }, [open, venue])
+    if (open === 'exchange') {
+      setChoice(venue)
+      void verifyAccount()
+    }
+  }, [open, venue, verifyAccount])
   useEffect(() => {
-    if (!open || binance) return
+    if (!open || cex || ownAI) return
     const previous = document.activeElement as HTMLElement | null
-    const previousOverflow = document.body.style.overflow
+    const overflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     dialog.current?.querySelector<HTMLButtonElement>('button')?.focus()
-    const close = (event: KeyboardEvent) => {
+    const keys = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onOpen(null)
       if (event.key !== 'Tab') return
       const items = Array.from(
         dialog.current?.querySelectorAll<HTMLElement>(
-          'button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled)'
+          'button:not(:disabled),a[href],input:not(:disabled),select:not(:disabled)'
         ) || []
       )
       const first = items[0],
@@ -158,15 +267,21 @@ export function FrontierSetup({
         first?.focus()
       }
     }
-    document.addEventListener('keydown', close)
+    document.addEventListener('keydown', keys)
     return () => {
-      document.removeEventListener('keydown', close)
-      document.body.style.overflow = previousOverflow
+      document.removeEventListener('keydown', keys)
+      document.body.style.overflow = overflow
       previous?.focus()
     }
-  }, [open, binance, onOpen])
+  }, [open, cex, ownAI, onOpen])
   async function createWallet() {
     if (working || pending.current) return
+    if (!wallet?.found) {
+      setOwnAI([
+        { id: 'claw402', name: 'Claw402', provider: 'claw402', enabled: false },
+      ])
+      return
+    }
     setWorking(true)
     setError('')
     try {
@@ -189,39 +304,85 @@ export function FrontierSetup({
       if (mounted.current) setWorking(false)
     }
   }
-  async function savedExchange() {
-    await onRefresh(undefined, choice)
-    setBinance(false)
-    // Return to Frontier with the idea intact; no model call or order is started.
+  async function savedExchange(id?: string) {
+    const latest = await api.getExchangeConfigs()
+    const saved =
+      id ||
+      latest.find(
+        (a) =>
+          a.exchange_type === choice && !accounts.some((old) => old.id === a.id)
+      )?.id
+    await onRefresh(undefined, choice, saved)
+    setCex(false)
+    // Stay here for the live check. Saving credentials alone is not verification.
+  }
+  function finish(step: 'ai' | 'exchange') {
+    onComplete?.(step)
     onOpen(null)
   }
   return (
     <>
-      {loaded && (!aiReady || !exchangeReady) && (
-        <section className="frontier-setup-strip" aria-label="Frontier setup">
-          <div>
-            <b>Get ready in two steps</b>
-            <span>
-              Explore charts now. Connect what you need when you’re ready.
-            </span>
-          </div>
-          <span className={aiReady ? 'setup-done' : ''}>
-            {aiReady ? '✓' : '1'} AI {aiReady ? 'ready' : 'setup'}
-          </span>
-          <span className={exchangeReady ? 'setup-done' : ''}>
-            {exchangeReady ? '✓' : '2'}{' '}
-            {venue === 'binance' ? 'Binance' : 'Hyperliquid'}{' '}
-            {exchangeReady ? 'connected' : 'account'}
-          </span>
-          <button
-            className="planning-primary"
-            onClick={() => onOpen(aiReady ? 'exchange' : 'ai')}
-          >
-            Continue setup
+      {loaded && (
+        <section className="frontier-connections" aria-label="Your connections">
+          <button onClick={() => onOpen('ai')}>
+            <span>AI & data</span>
+            <b>
+              {selectedModel?.provider !== 'claw402' && selectedModel
+                ? 'Your API provider'
+                : status === 'ready'
+                  ? `${Number(wallet?.balance_usdc).toFixed(2)} USDC`
+                  : status === 'empty'
+                    ? 'Add AI funds'
+                    : status === 'checking'
+                      ? 'Checking balance…'
+                      : 'Set up AI'}
+            </b>
           </button>
+          <button
+            className="frontier-account-funds"
+            onClick={() => onOpen('exchange')}
+          >
+            <span>Trading account</span>
+            <b>
+              {!accountID
+                ? 'Connect to trade'
+                : exchangeReady
+                  ? currentAccount
+                    ? accountLabel(currentAccount, accounts)
+                    : 'Account'
+                  : checked?.status === 'checking'
+                    ? 'Loading balance…'
+                    : 'Balance unavailable · Check connection'}
+            </b>
+            {exchangeReady && (
+              <>
+                <span
+                  className="frontier-funds-metric"
+                  title="Total account equity, including unrealized profit and loss."
+                >
+                  Account equity{' '}
+                  <b>
+                    {formatBalance(checked.equity)}{' '}
+                    {venue === 'hyperliquid' ? 'USDC' : 'USDT'}
+                  </b>
+                </span>
+                <span
+                  className="frontier-funds-metric"
+                  title="Free margin available for new orders, before leverage and execution costs."
+                >
+                  Available to trade{' '}
+                  <b>
+                    {formatBalance(checked.available)}{' '}
+                    {venue === 'hyperliquid' ? 'USDC' : 'USDT'}
+                  </b>
+                </span>
+              </>
+            )}
+          </button>
+          <small>AI fees and trading funds are separate.</small>
         </section>
       )}
-      {open && !binance && (
+      {open && !cex && !ownAI && (
         <div className="frontier-setup-backdrop">
           <section
             ref={dialog}
@@ -232,35 +393,21 @@ export function FrontierSetup({
           >
             <header>
               <div>
-                <small>FRONTIER SETUP</small>
+                <small>
+                  {open === 'ai' ? 'ANALYSIS & DATA' : 'YOUR TRADING FUNDS'}
+                </small>
                 <h2 id="frontier-setup-title">
                   {open === 'ai'
-                    ? 'Enable your AI'
-                    : 'Connect your trading account'}
+                    ? 'Set up your AI'
+                    : currentAccount
+                      ? 'Your trading account'
+                      : 'Connect a trading account'}
                 </h2>
               </div>
-              <button
-                autoFocus
-                aria-label="Close setup"
-                onClick={() => onOpen(null)}
-              >
+              <button aria-label="Close setup" onClick={() => onOpen(null)}>
                 ×
               </button>
             </header>
-            <nav aria-label="Setup steps">
-              <button
-                aria-current={open === 'ai' ? 'step' : undefined}
-                onClick={() => onOpen('ai')}
-              >
-                1 · AI {aiReady ? '✓' : ''}
-              </button>
-              <button
-                aria-current={open === 'exchange' ? 'step' : undefined}
-                onClick={() => onOpen('exchange')}
-              >
-                2 · Exchange {exchangeReady ? '✓' : ''}
-              </button>
-            </nav>
             {error && (
               <p role="alert" className="frontier-setup-error">
                 {error}
@@ -268,29 +415,35 @@ export function FrontierSetup({
             )}
             {open === 'ai' ? (
               <>
-                {selectedModel?.provider !== 'claw402' && selectedModel ? (
+                <p>
+                  Generate plans first. You only need a trading account when you
+                  want to place an order.
+                </p>
+                {selectedModel && selectedModel.provider !== 'claw402' && (
                   <div className="frontier-setup-success">
-                    <b>Your AI is connected</b>
+                    <b>Your AI is configured</b>
                     <p>
-                      {selectedModel.name} uses your existing provider
-                      configuration. An AI fee wallet is optional for paid
-                      market data.
+                      {selectedModel.name} bills through your provider. The
+                      separate AI balance below is only needed for paid data
+                      such as AI500.
                     </p>
                   </div>
-                ) : (
-                  <p>
-                    One wallet pays for AI requests and paid market data. Your
-                    trading funds stay in your exchange account.
-                  </p>
                 )}
+                <div className="frontier-ai-options">
+                  <b>Pay as you go</b>
+                  <p>
+                    AI requests and premium data are charged to a dedicated USDC
+                    wallet. Your trading balance is never used for these fees.
+                  </p>
+                </div>
                 {wallet?.found ? (
                   <div className="frontier-wallet-card">
-                    <QRCodeSVG value={wallet.address || ''} size={140} />
+                    <QRCodeSVG value={wallet.address || ''} size={130} />
                     <div>
-                      <b>USDC · Base network</b>
+                      <b>USDC on Base</b>
                       <p>
-                        Deposit USDC on Base to this address. This funds AI
-                        usage only.
+                        Send only USDC on the Base network to this AI payment
+                        address.
                       </p>
                       <code>{wallet.address}</code>
                       <button
@@ -307,20 +460,20 @@ export function FrontierSetup({
                           }
                         }}
                       >
-                        {copied ? 'Address copied' : 'Copy address'}
+                        {copied ? 'Address copied' : 'Copy AI payment address'}
                       </button>
-                      <p>
+                      <p role="status">
                         <strong>
                           {wallet.balance_status === 'ok'
-                            ? `${wallet.balance_usdc} USDC`
+                            ? `${Number(wallet.balance_usdc).toFixed(2)} USDC`
                             : 'Balance not verified'}
                         </strong>{' '}
                         ·{' '}
                         {status === 'ready'
-                          ? 'Funded'
+                          ? 'Funds received'
                           : status === 'empty'
-                            ? 'Waiting for deposit'
-                            : 'Check balance'}
+                            ? 'Waiting for your deposit · checks every 15 seconds'
+                            : 'Verification needed'}
                       </p>
                       <button
                         disabled={working}
@@ -340,18 +493,16 @@ export function FrontierSetup({
                   </div>
                 ) : (
                   <div className="frontier-setup-start">
-                    <b>AI, without entering an API key</b>
                     <p>
-                      Create a NOFX AI fee wallet, then fund it with Base USDC.
-                      Model calls are paid per request; setup itself sends no
-                      payment.
+                      Create your AI payment wallet, then fund it with Base
+                      USDC. Creating it does not charge you.
                     </p>
                     <button
                       className="planning-primary"
                       disabled={working || !!error || status === 'checking'}
                       onClick={() => void createWallet()}
                     >
-                      {working ? 'Setting up AI…' : 'Create AI wallet'}
+                      {working ? 'Setting up…' : 'Create AI wallet'}
                     </button>
                     {error && (
                       <button onClick={() => void refreshWallet()}>
@@ -360,53 +511,45 @@ export function FrontierSetup({
                     )}
                   </div>
                 )}
+                {wallet?.found && wallet.address && wallet.model_id && (
+                  <AIWalletBackup
+                    key={wallet.model_id + wallet.address}
+                    modelID={wallet.model_id}
+                    address={wallet.address}
+                  />
+                )}
                 <p className="frontier-setup-note">
-                  NOFX stores this wallet locally; back up your NOFX data before
-                  funding. A positive balance is not a price guarantee. Each
-                  paid request is checked by the gateway before use.
+                  Pay per request; the gateway checks the price before payment.
+                  A positive balance does not guarantee enough funds for every
+                  request. This wallet is encrypted on your NOFX server, not in
+                  your browser. Use Private key backup above to save your key.
+                  Keep a backup of your deployment too.
                 </p>
-                <Link
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  to="/settings?tab=models&returnTo=frontier"
-                >
-                  Use my own AI provider instead ↗
-                </Link>
-                <button
-                  disabled={working}
-                  onClick={async () => {
-                    try {
-                      await onRefresh()
-                      await refreshWallet()
-                    } catch {
-                      setError(
-                        'Could not refresh AI configuration. Please retry.'
-                      )
-                    }
-                  }}
-                >
-                  Refresh AI configuration
-                </button>
-                <footer>
-                  <button onClick={() => onOpen(null)}>
-                    Explore charts first
+                {directProviders.length > 0 && (
+                  <button
+                    disabled={working}
+                    className="frontier-own-ai"
+                    onClick={() => setOwnAI(directProviders)}
+                  >
+                    Use my own API key instead →
                   </button>
+                )}
+                <footer>
+                  <button onClick={() => onOpen(null)}>Keep exploring</button>
                   <button
                     className="planning-primary"
-                    disabled={!aiReady}
-                    onClick={() => onOpen(exchangeReady ? null : 'exchange')}
+                    disabled={!aiReady || working}
+                    onClick={() => finish('ai')}
                   >
-                    {exchangeReady
-                      ? 'Return to Frontier'
-                      : 'Continue to exchange'}
+                    Continue with this AI
                   </button>
                 </footer>
               </>
             ) : (
               <>
                 <p>
-                  Choose one. Frontier uses your existing NOFX account and order
-                  execution.
+                  Choose where your orders will go. Connecting does not place an
+                  order or start Autopilot.
                 </p>
                 <div className="frontier-exchange-choices">
                   <button
@@ -414,60 +557,141 @@ export function FrontierSetup({
                     onClick={() => setChoice('hyperliquid')}
                   >
                     <b>Hyperliquid</b>
-                    <span>Connect a wallet and approve trading access.</span>
+                    <span>Connect your wallet</span>
                   </button>
-                  <button
-                    aria-pressed={choice === 'binance'}
-                    onClick={() => setChoice('binance')}
-                  >
-                    <b>Binance Futures</b>
-                    <span>
-                      Connect a Futures API key. No withdrawals needed.
-                    </span>
-                  </button>
-                </div>
-                {choice === 'hyperliquid' ? (
-                  <HyperliquidWalletConnect
-                    language="en"
-                    isLoggedIn
-                    variant="inline"
-                    onSaved={savedExchange}
-                  />
-                ) : (
-                  <div className="frontier-setup-start">
-                    <b>Use your Binance USDT Futures account</b>
-                    <p>
-                      Enable Futures trading permission and restrict your API
-                      key to this server’s IP. Keep withdrawals disabled.
-                    </p>
+                  {apiKeyVenues.map((exchange) => (
                     <button
-                      className="planning-primary"
-                      onClick={() => setBinance(true)}
+                      key={exchange}
+                      aria-pressed={choice === exchange}
+                      onClick={() => setChoice(exchange)}
                     >
-                      Connect Binance
+                      <b>{venueName(exchange)} Futures</b>
+                      <span>
+                        API key{exchange !== 'binance' ? ' + passphrase' : ''}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                {choice === venue && currentAccount && (
+                  <div
+                    className={
+                      exchangeReady
+                        ? 'frontier-setup-success'
+                        : 'frontier-account-check'
+                    }
+                    role="status"
+                  >
+                    <b>
+                      {currentAccount.name} ·{' '}
+                      {exchangeReady
+                        ? 'Account verified'
+                        : checked?.status === 'checking'
+                          ? 'Checking the exchange…'
+                          : 'Verification incomplete'}
+                    </b>
+                    {exchangeReady ? (
+                      <>
+                        <p>
+                          Equity {Number(checked.equity).toFixed(2)} · Available
+                          margin {Number(checked.available).toFixed(2)}{' '}
+                          {venue === 'hyperliquid' ? 'USDC' : 'USDT'}
+                        </p>
+                        {Number(checked.available) <= 0 && (
+                          <p>
+                            No free margin right now. You can still generate
+                            plans; add trading funds or free margin before
+                            placing a new order.
+                          </p>
+                        )}
+                      </>
+                    ) : (
+                      <p>
+                        {checked?.error ||
+                          'Checking credentials and reading the live account.'}
+                      </p>
+                    )}
+                    <button
+                      onClick={() => void verifyAccount()}
+                      disabled={checked?.status === 'checking'}
+                    >
+                      Verify account
                     </button>
                   </div>
                 )}
+                {choice === 'hyperliquid' ? (
+                  currentAccount?.exchange_type === 'hyperliquid' ? (
+                    <details className="frontier-wallet-details">
+                      <summary>Wallet permissions & funding</summary>
+                      <HyperliquidWalletConnect
+                        key={currentAccount.id}
+                        account={{
+                          id: currentAccount.id,
+                          walletAddress:
+                            currentAccount.hyperliquidWalletAddr || '',
+                        }}
+                        language="en"
+                        isLoggedIn
+                        variant="inline"
+                        onSaved={savedExchange}
+                      />
+                    </details>
+                  ) : (
+                    <HyperliquidWalletConnect
+                      language="en"
+                      isLoggedIn
+                      variant="inline"
+                      onSaved={savedExchange}
+                    />
+                  )
+                ) : (
+                  <div className="frontier-setup-start">
+                    <b>Connect {venueName(choice)} USDT Futures</b>
+                    <ol>
+                      <li>Create an API key with Futures trading enabled.</li>
+                      <li>
+                        Allow this NOFX server IP. Keep withdrawals disabled.
+                      </li>
+                      <li>
+                        Save the key here. We then verify the live account.
+                      </li>
+                    </ol>
+                    <button
+                      className="planning-primary"
+                      onClick={() => {
+                        setAddingAccount(false)
+                        setCex(true)
+                      }}
+                    >
+                      {currentAccount?.exchange_type === choice
+                        ? `Update ${venueName(choice)} connection`
+                        : `Connect ${venueName(choice)}`}
+                    </button>
+                    {currentAccount?.exchange_type === choice && (
+                      <button
+                        onClick={() => {
+                          setAddingAccount(true)
+                          setCex(true)
+                        }}
+                      >
+                        Add another {venueName(choice)} account
+                      </button>
+                    )}
+                  </div>
+                )}
                 <p className="frontier-setup-note">
-                  Connecting an account does not place a trade or start
-                  Autopilot. Exchange permissions and available margin are
-                  verified when you review an order.
+                  Trading permissions, balances and order details are checked
+                  again before execution. Setup does not approve a trade.
                 </p>
                 <footer>
                   <button onClick={() => onOpen(null)}>
-                    Plan without an exchange
+                    {currentAccount ? 'Close' : 'Plan without an account'}
                   </button>
                   <button
-                    onClick={async () => {
-                      try {
-                        await onRefresh()
-                        onOpen(null)
-                      } catch {
-                        setError('Could not refresh accounts. Please retry.')
-                      }
-                    }}
+                    className="planning-primary"
+                    disabled={!exchangeReady || choice !== venue}
+                    onClick={() => finish('exchange')}
                   >
-                    I’ve connected my account
+                    Return to my plan
                   </button>
                 </footer>
               </>
@@ -475,29 +699,83 @@ export function FrontierSetup({
           </section>
         </div>
       )}
-      {binance && (
+      {cex && (
         <ExchangeConfigModal
           allExchanges={accounts}
-          editingExchangeId={null}
-          initialExchangeType="binance"
-          allowedExchangeTypes={['binance']}
+          editingExchangeId={
+            !addingAccount && currentAccount?.exchange_type === choice
+              ? currentAccount.id
+              : null
+          }
+          initialExchangeType={choice}
+          allowedExchangeTypes={[choice]}
           language="en"
-          onClose={() => setBinance(false)}
+          onClose={() => setCex(false)}
           onDelete={() => {}}
-          onSave={async (_id, type, name, key, secret, _pass, testnet) => {
-            if (type !== 'binance' || testnet)
+          onSave={async (id, type, name, key, secret, passphrase, testnet) => {
+            if (!apiKeyVenues.includes(type) || type !== choice || testnet)
               throw new Error(
-                'Frontier requires a Binance mainnet Futures account'
+                'Frontier requires a supported mainnet USDT futures account'
               )
-            await api.createExchangeEncrypted({
-              exchange_type: 'binance',
-              account_name: name,
-              enabled: true,
-              api_key: key,
-              secret_key: secret || '',
-              testnet: false,
-            })
-            await savedExchange()
+            if (id) {
+              await api.updateExchangeConfigsEncrypted({
+                exchanges: {
+                  [id]: {
+                    enabled: true,
+                    api_key: key,
+                    secret_key: secret || '',
+                    passphrase: passphrase || '',
+                    testnet: false,
+                  },
+                },
+              })
+              await savedExchange(id)
+            } else {
+              const result = await api.createExchangeEncrypted({
+                exchange_type: type,
+                account_name: name,
+                enabled: true,
+                api_key: key,
+                secret_key: secret || '',
+                passphrase: passphrase || '',
+                testnet: false,
+              })
+              await savedExchange(result.id)
+            }
+          }}
+        />
+      )}
+      {ownAI && (
+        <ModelConfigModal
+          allModels={ownAI}
+          configuredModels={models}
+          editingModelId={null}
+          language="en"
+          onClose={() => setOwnAI(null)}
+          onDelete={() => {}}
+          onSave={async (id, key, url, name) => {
+            try {
+              await api.updateModelConfigs({
+                models: {
+                  [id]: {
+                    enabled: true,
+                    api_key: key,
+                    custom_api_url: url || '',
+                    custom_model_name: name || '',
+                  },
+                },
+              })
+              const configured = await api.getModelConfigs()
+              const match =
+                configured.find((m) => m.id === id) ||
+                configured.find((m) => m.provider === id && m.enabled)
+              await onRefresh(match?.id)
+              await refreshWallet()
+              setOwnAI(null)
+              setError('')
+            } catch {
+              throw new Error('Could not save the AI provider.')
+            }
           }}
         />
       )}

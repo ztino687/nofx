@@ -5,8 +5,8 @@ import (
 )
 
 func (s *Server) handlePlanningMarkets(c *gin.Context) {
-	if c.Query("venue") != "binance" && c.Query("venue") != "hyperliquid" {
-		c.JSON(400, gin.H{"error": "Choose Binance or Hyperliquid"})
+	if !frontierVenue(c.Query("venue")) {
+		c.JSON(400, gin.H{"error": "Choose Binance, Hyperliquid, OKX or Bitget"})
 		return
 	}
 	p, err := s.planningService()

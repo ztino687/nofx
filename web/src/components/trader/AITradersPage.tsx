@@ -75,6 +75,7 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
   >({})
   const [isExchangeAccountStatesLoading, setIsExchangeAccountStatesLoading] =
     useState(false)
+  const [accountStateError, setAccountStateError] = useState('')
   const [supportedModels, setSupportedModels] = useState<AIModel[]>([])
   const [visibleTraderAddresses, setVisibleTraderAddresses] = useState<
     Set<string>
@@ -83,6 +84,22 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
     Set<string>
   >(new Set())
   const [copiedId, setCopiedId] = useState<string | null>(null)
+
+  const refreshAccountStates = async () => {
+    setIsExchangeAccountStatesLoading(true)
+    setAccountStateError('')
+    try {
+      const response = await api.getExchangeAccountState()
+      setExchangeAccountStates(response.states || {})
+    } catch {
+      setExchangeAccountStates({})
+      setAccountStateError(
+        'Account verification could not finish. Your connection is saved. Retry the check below.'
+      )
+    } finally {
+      setIsExchangeAccountStatesLoading(false)
+    }
+  }
 
   const loadConfigs = async () => {
     setConfigsLoading(true)
@@ -96,16 +113,14 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
 
     setIsExchangeAccountStatesLoading(true)
     try {
-      const [modelConfigs, exchangeConfigs, models, accountStateResponse] =
-        await Promise.all([
-          api.getModelConfigs(),
-          api.getExchangeConfigs(),
-          api.getSupportedModels(),
-          api.getExchangeAccountState().catch(() => ({ states: {} })),
-        ])
+      const [modelConfigs, exchangeConfigs, models] = await Promise.all([
+        api.getModelConfigs(),
+        api.getExchangeConfigs(),
+        api.getSupportedModels(),
+        refreshAccountStates(),
+      ])
       setAllModels(modelConfigs)
       setAllExchanges(exchangeConfigs)
-      setExchangeAccountStates(accountStateResponse.states || {})
       setSupportedModels(models)
     } catch (error) {
       setConfigError(
@@ -547,8 +562,10 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
       setShowModelModal(false)
       setEditingModel(null)
     } catch (error) {
-      console.error('Failed to save model config:', error)
       toast.error(t('saveConfigFailed', language))
+      throw new Error(
+        'Could not save the AI connection. Your wallet backup remains valid.'
+      )
     }
   }
 
@@ -656,6 +673,7 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
 
       setShowExchangeModal(false)
       setEditingExchange(null)
+      await refreshAccountStates()
     } catch (error) {
       console.error('Failed to save exchange config:', error)
       toast.error(t('saveConfigFailed', language))
@@ -852,6 +870,8 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
                   onAddExchange={handleAddExchange}
                   configuredExchanges={configuredExchanges}
                   exchangeAccountStates={exchangeAccountStates}
+                  accountStateError={accountStateError}
+                  onCheckAccounts={() => void refreshAccountStates()}
                   isExchangeAccountStatesLoading={
                     isExchangeAccountStatesLoading
                   }

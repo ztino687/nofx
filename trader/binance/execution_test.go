@@ -6,13 +6,16 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"nofx/trader/execution"
 	"nofx/trader/types"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func planningOrder() execution.Order {
@@ -267,5 +270,160 @@ func TestNOFXLimitAPIUsesSharedSubmission(t *testing.T) {
 				t.Fatalf("%+v %v calls=%d", result, err, count)
 			}
 		})
+	}
+}
+
+func TestMarketEntryUsesNativeMarketAndBrokerRoute(t *testing.T) {
+	for _, side := range []string{"long", "short"} {
+		t.Run(side, func(t *testing.T) {
+			o := planningOrder()
+			o.Type = "market"
+			o.Side = side
+			nativeSide := "BUY"
+			if side == "short" {
+				nativeSide = "SELL"
+			}
+			submits := 0
+			s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				r.ParseForm()
+				w.Header().Set("Content-Type", "application/json")
+				if r.URL.Path == "/fapi/v1/positionSide/dual" {
+					fmt.Fprint(w, `{"dualSidePosition":false}`)
+					return
+				}
+				if r.URL.Path != "/fapi/v1/order" {
+					t.Error(r.URL.Path)
+					return
+				}
+				if r.Method == "POST" {
+					submits++
+					if r.Form.Get("type") != "MARKET" || r.Form.Get("price") != "" || r.Form.Get("timeInForce") != "" || r.Form.Get("newClientOrderId") != o.VenueClientID || r.Form.Get("quantity") != string(o.Quantity) || r.Form.Get("side") != nativeSide {
+						t.Errorf("wrong market wire intent: %v", r.Form)
+					}
+				} else if r.Form.Get("origClientOrderId") != o.VenueClientID {
+					t.Fatal("lookup lost broker identity")
+				}
+				fmt.Fprintf(w, `{"orderId":123,"clientOrderId":%q,"symbol":"BTCUSDT","price":"0","origQty":"0.001","side":%q,"positionSide":"BOTH","type":"MARKET","status":"FILLED","executedQty":"0.001","avgPrice":"100005"}`, o.VenueClientID, nativeSide)
+			}))
+			defer s.Close()
+			b := NewExecutionTrader("test", "test", "")
+			b.client.BaseURL = s.URL
+			b.client.HTTPClient = s.Client()
+			got, err := b.SubmitOrder(context.Background(), o)
+			if err != nil || got.Status != "FILLED" || got.Type != "market" || got.Average != "100005" {
+				t.Fatal(got, err)
+			}
+			got, err = b.LookupOrder(context.Background(), got)
+			if err != nil || got.Status != "FILLED" || submits != 1 {
+				t.Fatal(got, err, submits)
+			}
+		})
+	}
+}
+
+func TestAccountClockCalibrationIsReadOnly(t *testing.T) {
+	const skew = int64(8000)
+	var reads []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("account verification attempted a mutation: %s %s", r.Method, r.URL.Path)
+		}
+		reads = append(reads, r.URL.Path)
+		switch r.URL.Path {
+		case "/fapi/v1/time":
+			fmt.Fprintf(w, `{"serverTime":%d}`, time.Now().UnixMilli()+skew)
+		case "/fapi/v2/account":
+			stamp, _ := strconv.ParseInt(r.URL.Query().Get("timestamp"), 10, 64)
+			if math.Abs(float64(stamp-time.Now().UnixMilli()-skew)) > 1000 {
+				w.WriteHeader(400)
+				fmt.Fprint(w, `{"code":-1021,"msg":"Timestamp outside recvWindow"}`)
+				return
+			}
+			fmt.Fprint(w, `{"canTrade":true,"multiAssetsMargin":false,"totalMarginBalance":"321.97","availableBalance":"321.97","positions":[]}`)
+		case "/fapi/v1/openOrders", "/fapi/v1/openAlgoOrders":
+			fmt.Fprint(w, `[]`)
+		case "/fapi/v1/commissionRate":
+			fmt.Fprint(w, `{"makerCommissionRate":"0.0002","takerCommissionRate":"0.0005"}`)
+		default:
+			t.Errorf("unexpected account inspection request: %s", r.URL.Path)
+			w.WriteHeader(404)
+		}
+	}))
+	defer server.Close()
+	b := NewExecutionTrader("fixture-key", "fixture-secret", "")
+	b.client.BaseURL, b.client.HTTPClient = server.URL, server.Client()
+	if _, err := b.AccountSnapshot(context.Background(), "BTCUSDT"); err == nil || !strings.Contains(err.Error(), "-1021") {
+		t.Fatalf("expected a readable clock error before calibration: %v", err)
+	}
+	if err := b.calibrateClock(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	account, err := b.AccountSnapshot(context.Background(), "BTCUSDT")
+	if err != nil || account.Equity != "321.97" || account.Available != "321.97" {
+		t.Fatalf("calibrated account read failed: %+v %v; requests %v", account, err, reads)
+	}
+}
+
+func TestBinanceAccountReadErrorsNeverExposeSignedURLs(t *testing.T) {
+	err := binanceReadError("read account", fmt.Errorf("GET https://example.test?signature=private&apiKey=secret"))
+	if strings.Contains(err.Error(), "private") || strings.Contains(err.Error(), "secret") {
+		t.Fatal("credential-bearing transport error leaked")
+	}
+}
+
+func TestAccountMarketClosePreservesModeSideAndBroker(t *testing.T) {
+	for _, hedge := range []bool{false, true} {
+		for _, position := range []string{"long", "short"} {
+			t.Run(fmt.Sprintf("hedge=%t/%s", hedge, position), func(t *testing.T) {
+				o := planningOrder()
+				o.Type = "market"
+				o.ReduceOnly = true
+				o.Price = "0.1287878419678551"
+				o.Side = "short"
+				nativeSide := "SELL"
+				nativePosition := "LONG"
+				if position == "short" {
+					o.Side = "long"
+					nativeSide = "BUY"
+					nativePosition = "SHORT"
+				}
+				if !hedge {
+					nativePosition = "BOTH"
+				}
+				submits := 0
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					r.ParseForm()
+					if r.URL.Path == "/fapi/v1/positionSide/dual" && r.Method == "GET" {
+						fmt.Fprintf(w, `{"dualSidePosition":%t}`, hedge)
+						return
+					}
+					if r.URL.Path != "/fapi/v1/order" || r.Method != "POST" {
+						t.Errorf("unexpected mutation or request %s %s", r.Method, r.URL.Path)
+						w.WriteHeader(400)
+						return
+					}
+					submits++
+					if r.Form.Get("price") != "" {
+						t.Error("market close sent a limit price")
+					}
+					if r.Form.Get("newOrderRespType") != "RESULT" {
+						t.Error("close must request final market receipt")
+					}
+					if r.Form.Get("side") != nativeSide || r.Form.Get("positionSide") != nativePosition || r.Form.Get("type") != "MARKET" || r.Form.Get("quantity") != "0.001" || r.Form.Get("newClientOrderId") != o.VenueClientID {
+						t.Error("wrong close intent", r.Form)
+					}
+					if !hedge && r.Form.Get("reduceOnly") != "true" || hedge && r.Form.Get("reduceOnly") != "" {
+						t.Error("wrong reduceOnly mode", r.Form)
+					}
+					fmt.Fprintf(w, `{"orderId":123,"clientOrderId":%q,"symbol":"BTCUSDT","origQty":"0.001","side":%q,"positionSide":%q,"type":"MARKET","reduceOnly":%t,"status":"FILLED","executedQty":"0.001","avgPrice":"100000"}`, o.VenueClientID, nativeSide, nativePosition, !hedge)
+				}))
+				defer server.Close()
+				b := NewExecutionTrader("fixture", "fixture", "")
+				b.client.BaseURL, b.client.HTTPClient = server.URL, server.Client()
+				if result, err := b.SubmitOrder(context.Background(), o); err != nil || result.Status != "FILLED" || submits != 1 {
+					t.Fatal(result, err, submits)
+				}
+			})
+		}
 	}
 }

@@ -154,6 +154,7 @@ func (s *Server) setupRoutes() {
 		// Wallet validation (no authentication required — used by frontend config form)
 		api.POST("/wallet/validate", s.handleWalletValidate)
 		api.POST("/wallet/generate", s.handleWalletGenerate)
+		api.GET("/wallet/balance", s.handleWalletBalance)
 		s.route(api, "GET", "/hyperliquid/connect-config", "Get NOFX Hyperliquid builder authorization config", s.handleHyperliquidConnectConfig)
 		s.route(api, "GET", "/hyperliquid/account", "Get Hyperliquid account balance summary", s.handleHyperliquidAccount)
 		s.route(api, "GET", "/hyperliquid/agent", "Get Hyperliquid approved agent wallets and authorization expiry", s.handleHyperliquidAgent)
@@ -204,6 +205,8 @@ func (s *Server) setupRoutes() {
 		// Routes requiring authentication
 		protected := api.Group("/", s.authMiddleware())
 		s.registerPlanning(api, protected)
+		// UI-only secret export: do not register in the AI route/tool catalog.
+		protected.POST("/wallet/export", s.handleWalletExport)
 		{
 			// Logout (add to blacklist)
 			s.route(protected, "POST", "/logout", "Logout (blacklist token)", s.handleLogout)

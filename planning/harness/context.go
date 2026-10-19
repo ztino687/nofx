@@ -2,7 +2,9 @@ package harness
 
 import (
 	"context"
+	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
 	"nofx/planning/core"
@@ -22,107 +24,87 @@ func macroIntervals(interval string) []string {
 	}
 }
 
-// Visible context is bounded, paginated, and explicitly distinguished from fresh
-// executable quotes. The full range is summarized; large raw series are sampled.
-func (e *Engine) chartContext(ctx context.Context, input *Input, emit Emit) (map[string]any, error) {
-	now := time.Now().Unix()
-	requestedFrom := input.VisibleFrom
-	from, to := input.VisibleFrom, input.VisibleTo
-	if to == 0 || to > now+1 {
-		to = now + 1
-	}
-	// Older/native clients may include an all-future viewport. There are no
-	// candles there: use the documented latest-window fallback and disclose it.
-	futureOnly := from >= to && from > 0
-	if futureOnly {
-		from = 0
-	}
-	count := 240
-	if from > 0 {
-		count = int((to-from)/market.IntervalSeconds(input.Interval)) + 2
-		if count < 1 {
-			count = 1
-		}
-		if count > 1200 {
-			count = 1200
-		}
-	}
-	q := market.CandleQuery{Venue: input.Venue, Symbol: input.Symbol, Interval: input.Interval, To: to, Limit: min(300, count)}
-	if err := emit(Event{"tool_start", map[string]any{"name": "get_candles", "id": "context"}}); err != nil {
-		return nil, err
-	}
+// Planning always reads fresh history independently of chart zoom and scroll.
+// The viewport is retained only as drawing context, never as a data limit.
+const primaryHistoryBars = 1200
+const comparisonHistoryBars = 500
+
+func (e *Engine) history(ctx context.Context, input *Input, interval string, count int, to int64, id string, emit Emit) ([]market.Candle, error) {
+	q := market.CandleQuery{Venue: input.Venue, Symbol: input.Symbol, Interval: interval, To: to}
 	rows := []market.Candle{}
-	var fetchErr error
-	for len(rows) < count {
+	// Bound requests even if an exchange returns unusually small pages.
+	for pageNo := 0; len(rows) < count && pageNo < 16; pageNo++ {
+		if err := ctx.Err(); err != nil {
+			return rows, err
+		}
 		q.Limit = min(300, count-len(rows))
 		page, err := e.Charts.Candles(ctx, q)
 		if err != nil {
-			fetchErr = err
+			return rows, err
+		}
+		// Preserve strict chronological order across inclusive venue cursors.
+		older := make([]market.Candle, 0, len(page))
+		for _, bar := range page {
+			if bar.Time < q.To {
+				older = append(older, bar)
+			}
+		}
+		if len(older) == 0 {
 			break
 		}
-		if len(page) == 0 {
-			break
+		if len(older) > q.Limit {
+			older = older[len(older)-q.Limit:]
 		}
-		previous := q.To
-		q.To = page[0].Time
-		if q.To >= previous {
-			break
-		}
-		rows = append(page, rows...)
-		if from > 0 && page[0].Time <= from {
-			break
+		q.To = older[0].Time
+		rows = append(older, rows...)
+		if err := emit(Event{"tool_progress", map[string]any{"name": "get_candles", "id": id, "interval": interval, "count": len(rows), "target_count": count, "scope": "Latest history · independent of chart view"}}); err != nil {
+			return rows, err
 		}
 	}
-	filtered := []market.Candle{}
-	for _, row := range rows {
-		if row.Time < to && (from == 0 || row.Time >= from) {
-			filtered = append(filtered, row)
-		}
+	return rows, nil
+}
+
+func (e *Engine) chartContext(ctx context.Context, input *Input, emit Emit) (map[string]any, error) {
+	to := time.Now().Unix() + 1
+	input.Analysis = &core.Analysis{Interval: input.Interval, VisibleFrom: input.VisibleFrom, VisibleTo: input.VisibleTo, HistoryPolicy: "latest_history", Windows: []core.DataWindow{}}
+	data := map[string]any{
+		"active_interval":         input.Interval,
+		"visible_range_requested": map[string]int64{"from": input.VisibleFrom, "to": input.VisibleTo},
+		"history_policy":          "Latest history independent of chart viewport; primary 1200 bars, comparison timeframes 500 bars each. Fewer bars means limited exchange history, never synthetic candles.",
+		"received":                time.Now().UTC(),
 	}
-	rows = filtered
-	primary := window(input.Interval, rows)
-	if from > 0 {
-		primary.Truncated = int64(len(rows))*market.IntervalSeconds(input.Interval) < to-from-market.IntervalSeconds(input.Interval)
-	}
-	input.Analysis = &core.Analysis{Interval: input.Interval, VisibleFrom: from, VisibleTo: input.VisibleTo, Windows: []core.DataWindow{primary}}
-	data := map[string]any{"active_interval": input.Interval, "visible_range_requested": map[string]int64{"from": requestedFrom, "to": input.VisibleTo}, "primary": series(rows, primary), "received": time.Now().UTC()}
-	data["effective_data_range"] = map[string]int64{"from": from, "to": to}
-	if futureOnly {
-		data["viewport_note"] = "The chart viewport is in future whitespace. Loaded the latest 240 actual candles for this timeframe."
-	}
-	if fetchErr != nil {
-		data["primary_error"] = fetchErr.Error()
-	}
-	if err := emit(Event{"tool_result", map[string]any{"name": "get_candles", "id": "context", "ok": fetchErr == nil, "count": len(rows), "interval": input.Interval, "scope": map[bool]string{true: "Latest 240 candles (future whitespace)", false: "Visible range"}[futureOnly], "from": primary.From, "to": primary.To, "truncated": primary.Truncated}}); err != nil {
-		return nil, err
-	}
-	// A historical viewport never substitutes for the latest active-interval data.
-	if input.VisibleTo > 0 && input.VisibleTo < now-market.IntervalSeconds(input.Interval) {
-		latest, err := e.Charts.Candles(ctx, market.CandleQuery{Venue: input.Venue, Symbol: input.Symbol, Interval: input.Interval, Limit: 120})
-		if err == nil {
-			w := window(input.Interval, latest)
-			data["latest_active_interval"] = series(latest, w)
-			input.Analysis.Windows = append(input.Analysis.Windows, w)
-		} else {
-			data["latest_error"] = err.Error()
-		}
-	}
+	intervals := append([]string{input.Interval}, macroIntervals(input.Interval)...)
 	macro := []any{}
-	for _, interval := range macroIntervals(input.Interval) {
-		id := "macro_" + interval
+	for index, interval := range intervals {
+		id, target := "context", primaryHistoryBars
+		if index > 0 {
+			id, target = "macro_"+interval, comparisonHistoryBars
+		}
 		if err := emit(Event{"tool_start", map[string]any{"name": "get_candles", "id": id}}); err != nil {
 			return nil, err
 		}
-		bars, err := e.Charts.Candles(ctx, market.CandleQuery{Venue: input.Venue, Symbol: input.Symbol, Interval: interval, Limit: 120})
+		bars, err := e.history(ctx, input, interval, target, to, id, emit)
 		w := window(interval, bars)
+		w.TargetCount, w.Truncated = target, len(bars) < target
+		result := map[string]any{"name": "get_candles", "id": id, "ok": err == nil && len(bars) > 0, "count": len(bars), "target_count": target, "interval": interval, "scope": "Latest history · independent of chart view", "from": w.From, "to": w.To, "truncated": w.Truncated}
 		if err != nil {
-			macro = append(macro, map[string]string{"interval": interval, "error": err.Error()})
+			result["reason"] = err.Error()
+		} else if len(bars) == 0 {
+			err = fmt.Errorf("no %s candles available for %s", interval, input.Symbol)
+			result["reason"] = err.Error()
+		}
+		if emitErr := emit(Event{"tool_result", result}); emitErr != nil {
+			return nil, emitErr
+		}
+		if err != nil {
+			return nil, fmt.Errorf("could not load %s planning history: %w", interval, err)
+		}
+		input.Analysis.Windows = append(input.Analysis.Windows, w)
+		if index == 0 {
+			data["primary"] = series(bars, w)
+			data["effective_data_range"] = map[string]int64{"from": w.From, "to": w.To}
 		} else {
 			macro = append(macro, series(bars, w))
-			input.Analysis.Windows = append(input.Analysis.Windows, w)
-		}
-		if emitErr := emit(Event{"tool_result", map[string]any{"name": "get_candles", "id": id, "ok": err == nil, "count": len(bars), "interval": interval, "scope": "Higher / comparison timeframe", "from": w.From, "to": w.To}}); emitErr != nil {
-			return nil, emitErr
 		}
 	}
 	data["comparison_timeframes"] = macro
@@ -157,12 +139,41 @@ func series(rows []market.Candle, w core.DataWindow) any {
 			low = l
 		}
 	}
-	sample := rows
-	if len(rows) > 240 {
-		sample = []market.Candle{}
-		for n := 0; n < 240; n++ {
-			sample = append(sample, rows[n*(len(rows)-1)/239])
+	// Keep the latest raw candles contiguous. Older OHLCV groups cover every
+	// fetched bar, preserving extremes and volume instead of dropping samples.
+	cut := max(0, len(rows)-240)
+	older := [][]any{}
+	if cut > 0 {
+		groupSize := (cut + 95) / 96
+		for start := 0; start < cut; start += groupSize {
+			group := rows[start:min(start+groupSize, cut)]
+			h, l := new(big.Rat), new(big.Rat)
+			h.SetString(string(group[0].High))
+			l.SetString(string(group[0].Low))
+			volume := new(big.Rat)
+			for _, bar := range group {
+				bh, _ := new(big.Rat).SetString(string(bar.High))
+				bl, _ := new(big.Rat).SetString(string(bar.Low))
+				bv, _ := new(big.Rat).SetString(string(bar.Volume))
+				if bh.Cmp(h) > 0 {
+					h = bh
+				}
+				if bl.Cmp(l) < 0 {
+					l = bl
+				}
+				volume.Add(volume, bv)
+			}
+			older = append(older, []any{group[0].Time, group[len(group)-1].Time, len(group), group[0].Open, compactDecimal(h), compactDecimal(l), group[len(group)-1].Close, compactDecimal(volume)})
 		}
 	}
-	return map[string]any{"window": w, "candles": sample, "sample_is_noncontiguous": w.Sampled, "range_high": high.FloatString(12), "range_low": low.FloatString(12), "first_close": rows[0].Close, "last_close": rows[len(rows)-1].Close, "notice": "Market context, not a historical strategy test. Sampled rows are not contiguous indicator input."}
+	raw := make([][]any, 0, len(rows)-cut)
+	for _, row := range rows[cut:] {
+		raw = append(raw, []any{row.Time, row.Open, row.High, row.Low, row.Close, row.Volume})
+	}
+	return map[string]any{"window": w, "candle_columns": []string{"time", "open", "high", "low", "close", "volume"}, "candles": raw, "aggregate_columns": []string{"from", "to", "count", "open", "high", "low", "close", "volume"}, "historical_aggregates": older, "raw_recent_count": len(rows) - cut, "sample_is_noncontiguous": false, "range_high": high.FloatString(12), "range_low": low.FloatString(12), "first_close": rows[0].Close, "last_close": rows[len(rows)-1].Close, "notice": "Latest raw candles preserve the original sequence. Older aggregates cover every remaining fetched bar with OHLCV and timestamps; do not treat aggregates as single candles at the active interval. Request raw historical slices for indicators. Limited history is disclosed in the window."}
+}
+
+// Compact decimal text preserves the exact value while reducing model input.
+func compactDecimal(r *big.Rat) string {
+	return strings.TrimRight(strings.TrimRight(r.FloatString(12), "0"), ".")
 }

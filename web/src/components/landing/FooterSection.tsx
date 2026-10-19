@@ -1,3 +1,4 @@
+import { BrandLogo } from '../common/BrandLogo'
 import { Github, Send, ExternalLink } from 'lucide-react'
 import { t, Language } from '../../i18n/translations'
 import { OFFICIAL_LINKS } from '../../constants/branding'
@@ -43,19 +44,16 @@ export default function FooterSection({ language }: FooterSectionProps) {
   }
 
   return (
-    <footer style={{ background: '#F1ECE2', borderTop: '1px solid rgba(26, 24, 19, 0.14)' }}>
+    <footer style={{ background: '#f6f8fc', borderTop: '1px solid rgba(25,36,52, 0.14)' }}>
       <div className="max-w-6xl mx-auto px-4 py-8 md:py-12">
         {/* Top Section */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-8 md:gap-10 mb-8 md:mb-12">
           {/* Brand */}
           <div className="md:col-span-1">
             <div className="flex items-center gap-3 mb-4">
-              <img src="/icons/nofx.svg" alt="NOFX Logo" className="w-8 h-8" />
-              <span className="text-xl font-bold" style={{ color: '#1A1813' }}>
-                NOFX
-              </span>
+              <BrandLogo />
             </div>
-            <p className="text-sm mb-6" style={{ color: '#8A8478' }}>
+            <p className="text-sm mb-6" style={{ color: '#707e92' }}>
               {t('futureStandardAI', language)}
             </p>
             {/* Social Icons */}
@@ -68,8 +66,8 @@ export default function FooterSection({ language }: FooterSectionProps) {
                   rel="noopener noreferrer"
                   className="w-9 h-9 rounded-lg flex items-center justify-center transition-all hover:scale-110"
                   style={{
-                    background: '#E8E2D5',
-                    color: '#8A8478',
+                    background: '#edf1f7',
+                    color: '#707e92',
                   }}
                   title={link.name}
                 >
@@ -81,7 +79,7 @@ export default function FooterSection({ language }: FooterSectionProps) {
 
           {/* Links */}
           <div>
-            <h4 className="text-sm font-semibold mb-4" style={{ color: '#1A1813' }}>
+            <h4 className="text-sm font-semibold mb-4" style={{ color: '#192434' }}>
               {t('links', language)}
             </h4>
             <ul className="space-y-3">
@@ -91,8 +89,8 @@ export default function FooterSection({ language }: FooterSectionProps) {
                     href={link.href}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-sm transition-colors hover:text-[#E0483B]"
-                    style={{ color: '#8A8478' }}
+                    className="text-sm transition-colors hover:text-[#295be8]"
+                    style={{ color: '#707e92' }}
                   >
                     {link.name}
                   </a>
@@ -103,7 +101,7 @@ export default function FooterSection({ language }: FooterSectionProps) {
 
           {/* Resources */}
           <div>
-            <h4 className="text-sm font-semibold mb-4" style={{ color: '#1A1813' }}>
+            <h4 className="text-sm font-semibold mb-4" style={{ color: '#192434' }}>
               {t('resources', language)}
             </h4>
             <ul className="space-y-3">
@@ -113,8 +111,8 @@ export default function FooterSection({ language }: FooterSectionProps) {
                     href={link.href}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-sm transition-colors hover:text-[#E0483B] inline-flex items-center gap-1"
-                    style={{ color: '#8A8478' }}
+                    className="text-sm transition-colors hover:text-[#295be8] inline-flex items-center gap-1"
+                    style={{ color: '#707e92' }}
                   >
                     {link.name}
                     <ExternalLink className="w-3 h-3 opacity-50" />
@@ -126,7 +124,7 @@ export default function FooterSection({ language }: FooterSectionProps) {
 
           {/* Supporters */}
           <div>
-            <h4 className="text-sm font-semibold mb-4" style={{ color: '#1A1813' }}>
+            <h4 className="text-sm font-semibold mb-4" style={{ color: '#192434' }}>
               {t('supporters', language)}
             </h4>
             <div className="flex flex-wrap gap-2">
@@ -136,8 +134,8 @@ export default function FooterSection({ language }: FooterSectionProps) {
                   href={link.href}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-xs border border-[rgba(26,24,19,0.14)] bg-nofx-bg-lighter rounded-sm px-3 py-1.5 transition-all hover:border-[#E0483B] hover:text-[#E0483B] hover:bg-[#E0483B]/10"
-                  style={{ color: '#8A8478' }}
+                  className="text-xs border border-[rgba(25,36,52,0.14)] bg-nofx-bg-lighter rounded-sm px-3 py-1.5 transition-all hover:border-[#295be8] hover:text-[#295be8] hover:bg-[#295be8]/10"
+                  style={{ color: '#707e92' }}
                 >
                   {link.name}
                 </a>
@@ -149,10 +147,10 @@ export default function FooterSection({ language }: FooterSectionProps) {
         {/* Bottom Section */}
         <div
           className="pt-6 text-center text-xs"
-          style={{ color: '#8A8478', borderTop: '1px solid rgba(26, 24, 19, 0.14)' }}
+          style={{ color: '#707e92', borderTop: '1px solid rgba(25,36,52, 0.14)' }}
         >
           <p className="mb-2">{t('footerTitle', language)}</p>
-          <p style={{ color: '#B4B2A9' }}>{t('footerWarning', language)}</p>
+          <p style={{ color: '#a3adbd' }}>{t('footerWarning', language)}</p>
         </div>
       </div>
     </footer>

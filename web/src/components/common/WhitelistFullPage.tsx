@@ -21,7 +21,7 @@ export function WhitelistFullPage({ onBack }: WhitelistFullPageProps) {
   return (
     <div className="min-h-screen bg-nofx-bg-deeper text-nofx-text font-mono relative overflow-hidden flex items-center justify-center px-4">
       {/* Background Grid */}
-      <div className="fixed inset-0 bg-[linear-gradient(to_right,rgba(26,24,19,0.04)_1px,transparent_1px),linear-gradient(to_bottom,rgba(26,24,19,0.04)_1px,transparent_1px)] bg-size-[24px_24px] pointer-events-none"></div>
+      <div className="fixed inset-0 bg-[linear-gradient(to_right,rgba(25,36,52,0.04)_1px,transparent_1px),linear-gradient(to_bottom,rgba(25,36,52,0.04)_1px,transparent_1px)] bg-size-[24px_24px] pointer-events-none"></div>
 
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
@@ -34,8 +34,8 @@ export function WhitelistFullPage({ onBack }: WhitelistFullPageProps) {
           <div className="flex items-center justify-between px-4 py-2 bg-nofx-danger/10 border-b border-nofx-danger/30">
             <div className="flex gap-1.5 opacity-50">
               <div className="w-2.5 h-2.5 rounded-full bg-nofx-danger"></div>
-              <div className="w-2.5 h-2.5 rounded-full bg-[rgba(26,24,19,0.25)]"></div>
-              <div className="w-2.5 h-2.5 rounded-full bg-[rgba(26,24,19,0.25)]"></div>
+              <div className="w-2.5 h-2.5 rounded-full bg-[rgba(25,36,52,0.25)]"></div>
+              <div className="w-2.5 h-2.5 rounded-full bg-[rgba(25,36,52,0.25)]"></div>
             </div>
             <div className="text-[10px] text-nofx-danger font-mono tracking-widest animate-pulse">
               ACCESS_DENIED // ERROR_403
@@ -89,7 +89,7 @@ export function WhitelistFullPage({ onBack }: WhitelistFullPageProps) {
             <div className="space-y-3">
               <button
                 onClick={handleBackToLogin}
-                className="w-full flex items-center justify-center gap-2 py-3 border border-[rgba(26,24,19,0.14)] bg-nofx-bg hover:bg-nofx-bg-deeper hover:border-nofx-danger hover:text-nofx-danger text-nofx-text-muted transition-all text-xs font-bold tracking-widest uppercase group"
+                className="w-full flex items-center justify-center gap-2 py-3 border border-[rgba(25,36,52,0.14)] bg-nofx-bg hover:bg-nofx-bg-deeper hover:border-nofx-danger hover:text-nofx-danger text-nofx-text-muted transition-all text-xs font-bold tracking-widest uppercase group"
               >
                 <ArrowLeft className="w-3 h-3 group-hover:-translate-x-1 transition-transform" />
                 RETURN TO LOGIN
@@ -100,7 +100,7 @@ export function WhitelistFullPage({ onBack }: WhitelistFullPageProps) {
                   href={OFFICIAL_LINKS.twitter}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center justify-center gap-2 py-2 border border-[rgba(26,24,19,0.14)] bg-nofx-bg hover:bg-nofx-bg-deeper text-nofx-text-muted hover:text-nofx-text transition-colors text-[10px] uppercase"
+                  className="flex items-center justify-center gap-2 py-2 border border-[rgba(25,36,52,0.14)] bg-nofx-bg hover:bg-nofx-bg-deeper text-nofx-text-muted hover:text-nofx-text transition-colors text-[10px] uppercase"
                 >
                   <Twitter className="w-3 h-3" />
                   Updates
@@ -109,7 +109,7 @@ export function WhitelistFullPage({ onBack }: WhitelistFullPageProps) {
                   href={OFFICIAL_LINKS.telegram}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center justify-center gap-2 py-2 border border-[rgba(26,24,19,0.14)] bg-nofx-bg hover:bg-nofx-bg-deeper text-nofx-text-muted hover:text-nofx-text transition-colors text-[10px] uppercase"
+                  className="flex items-center justify-center gap-2 py-2 border border-[rgba(25,36,52,0.14)] bg-nofx-bg hover:bg-nofx-bg-deeper text-nofx-text-muted hover:text-nofx-text transition-colors text-[10px] uppercase"
                 >
                   <Send className="w-3 h-3" />
                   Support
@@ -119,7 +119,7 @@ export function WhitelistFullPage({ onBack }: WhitelistFullPageProps) {
           </div>
 
           {/* Footer */}
-          <div className="bg-nofx-bg-deeper p-2 text-[9px] text-nofx-text-muted text-center border-t border-[rgba(26,24,19,0.14)] font-mono uppercase">
+          <div className="bg-nofx-bg-deeper p-2 text-[9px] text-nofx-text-muted text-center border-t border-[rgba(25,36,52,0.14)] font-mono uppercase">
             ERR_CODE: WLIST_0x403 // SECURITY_LAYER_ACTIVE
           </div>
         </div>

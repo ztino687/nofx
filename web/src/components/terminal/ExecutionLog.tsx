@@ -193,7 +193,7 @@ function Cycle({ record }: CycleProps) {
           fontSize: 9,
           padding: '2px 6px',
           marginBottom: actions.length || logs.length || record.error_message ? 4 : 0,
-          background: 'rgba(26,24,19,0.045)',
+          background: 'rgba(25,36,52,0.045)',
           borderLeft: `2px solid ${fault ? 'var(--tm-dn)' : 'var(--tm-hair)'}`,
           color: 'var(--tm-ink-2)',
         }}

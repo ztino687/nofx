@@ -9,15 +9,15 @@ export default function AgentTerminal() {
             className="w-[380px] lg:w-[440px] relative group"
         >
             {/* Terminal frame */}
-            <div className="relative bg-nofx-bg-lighter rounded-2xl overflow-hidden shadow-lg border border-[rgba(26,24,19,0.14)]">
+            <div className="relative bg-nofx-bg-lighter rounded-2xl overflow-hidden shadow-lg border border-[rgba(25,36,52,0.14)]">
 
                 {/* Header bar - macOS style */}
-                <div className="flex items-center justify-between px-4 py-2.5 bg-nofx-bg-deeper border-b border-[rgba(26,24,19,0.14)]">
+                <div className="flex items-center justify-between px-4 py-2.5 bg-nofx-bg-deeper border-b border-[rgba(25,36,52,0.14)]">
                     {/* Window controls */}
                     <div className="flex items-center gap-2">
                         <div className="flex items-center gap-1.5">
                             <div className="w-3 h-3 rounded-full bg-nofx-danger hover:brightness-110 transition-all" />
-                            <div className="w-3 h-3 rounded-full bg-[#E0483B] hover:brightness-110 transition-all" />
+                            <div className="w-3 h-3 rounded-full bg-[#295be8] hover:brightness-110 transition-all" />
                             <div className="w-3 h-3 rounded-full bg-nofx-success hover:brightness-110 transition-all" />
                         </div>
                     </div>
@@ -33,7 +33,7 @@ export default function AgentTerminal() {
                 </div>
 
                 {/* Portfolio PnL Section */}
-                <div className="p-4 border-b border-[rgba(26,24,19,0.14)]">
+                <div className="p-4 border-b border-[rgba(25,36,52,0.14)]">
                     <div className="flex items-center justify-between mb-3">
                         <span className="text-nofx-text-muted text-xs font-mono uppercase tracking-wider">Portfolio PnL</span>
                         <div className="flex gap-1">
@@ -71,7 +71,7 @@ export default function AgentTerminal() {
                 </div>
 
                 {/* Metrics Row */}
-                <div className="grid grid-cols-3 divide-x divide-[rgba(26,24,19,0.14)] border-b border-[rgba(26,24,19,0.14)]">
+                <div className="grid grid-cols-3 divide-x divide-[rgba(25,36,52,0.14)] border-b border-[rgba(25,36,52,0.14)]">
                     <div className="p-3 text-center">
                         <div className="text-nofx-text-muted text-[10px] font-mono uppercase tracking-wider mb-1">OI</div>
                         <div className="text-nofx-text font-bold font-mono">$847M</div>
@@ -93,7 +93,7 @@ export default function AgentTerminal() {
                 </div>
 
                 {/* Order Book */}
-                <div className="p-4 border-b border-[rgba(26,24,19,0.14)]">
+                <div className="p-4 border-b border-[rgba(25,36,52,0.14)]">
                     <div className="flex items-center justify-between mb-3">
                         <span className="text-nofx-text text-xs font-mono uppercase tracking-wider">Order Book</span>
                         <span className="text-nofx-text-muted text-[10px] font-mono">Spread: <span className="text-nofx-gold">0.02%</span></span>
@@ -172,7 +172,7 @@ export default function AgentTerminal() {
                 </div>
 
                 {/* Footer status bar */}
-                <div className="px-4 py-2 bg-nofx-bg-deeper border-t border-[rgba(26,24,19,0.14)] flex items-center justify-between">
+                <div className="px-4 py-2 bg-nofx-bg-deeper border-t border-[rgba(25,36,52,0.14)] flex items-center justify-between">
                     <div className="flex items-center gap-3 text-[10px] font-mono text-nofx-text-muted">
                         <span className="flex items-center gap-1">
                             <div className="w-1.5 h-1.5 bg-nofx-success rounded-full" />

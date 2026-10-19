@@ -104,7 +104,7 @@ export default function AgentGrid() {
                 <div className="p-8 relative z-10">
                   {/* Header */}
                   <div className="flex justify-between items-start mb-6">
-                    <div className="p-3 bg-nofx-bg-deeper rounded-sm border border-[rgba(26,24,19,0.14)]">
+                    <div className="p-3 bg-nofx-bg-deeper rounded-sm border border-[rgba(25,36,52,0.14)]">
                       <Icon className={`w-8 h-8 ${preset.color}`} />
                     </div>
                     <div className="text-right">
@@ -128,7 +128,7 @@ export default function AgentGrid() {
                   </p>
 
                   {/* Stats Grid */}
-                  <div className="grid grid-cols-3 gap-px bg-[rgba(26,24,19,0.14)] border border-[rgba(26,24,19,0.14)] rounded-sm overflow-hidden mb-8">
+                  <div className="grid grid-cols-3 gap-px bg-[rgba(25,36,52,0.14)] border border-[rgba(25,36,52,0.14)] rounded-sm overflow-hidden mb-8">
                     <div className="bg-nofx-bg-deeper p-3 text-center group-hover:bg-nofx-bg transition-colors">
                       <div className="text-[10px] text-nofx-text-muted uppercase font-mono mb-1">
                         APY
@@ -158,7 +158,7 @@ export default function AgentGrid() {
                   {/* Action Btn */}
                   <button
                     onClick={handleInitialize}
-                    className={`w-full py-4 text-xs font-bold font-mono uppercase tracking-[0.2em] border border-[rgba(26,24,19,0.14)] hover:border-${preset.color === 'text-nofx-gold' ? 'nofx-gold' : 'nofx-text'} hover:bg-nofx-text/5 transition-all flex items-center justify-center gap-2 group-hover:text-nofx-text cursor-pointer text-nofx-text`}
+                    className={`w-full py-4 text-xs font-bold font-mono uppercase tracking-[0.2em] border border-[rgba(25,36,52,0.14)] hover:border-${preset.color === 'text-nofx-gold' ? 'nofx-gold' : 'nofx-text'} hover:bg-nofx-text/5 transition-all flex items-center justify-center gap-2 group-hover:text-nofx-text cursor-pointer text-nofx-text`}
                   >
                     <span className={preset.color}>[</span> INITIALIZE{' '}
                     <span className={preset.color}>]</span>

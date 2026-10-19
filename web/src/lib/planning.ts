@@ -35,15 +35,17 @@ export interface Idea {
   target: string
   rationale: string
   execution: {
-    kind: 'limit' | 'ladder' | 'twap'
+    kind: 'market' | 'limit' | 'ladder' | 'twap'
     levels?: { price: string; weight: string }[]
     slices?: number
     interval_seconds?: number
   }
 }
 export interface Constraints {
+  planning_only?: boolean
   leverage?: number
   available_margin?: string
+  sizing_policy?: 'account_margin'
   equity: string
   max_risk: string
   max_notional: string
@@ -112,17 +114,68 @@ export const defaultLimits: Constraints = {
   equity: '1000',
   max_risk: '10',
   max_notional: '100',
-  min_reward_risk: '2',
+  min_reward_risk: '0',
   fee_bps: '10',
   slippage_bps: '10',
 }
+export class CloseNotSubmittedError extends Error {
+  readonly closeState = 'not_submitted'
+}
+
 export async function planningAPI<T>(path: string, body?: unknown): Promise<T> {
-  const r = await fetch('/api/planning/' + path, {
-    method: body === undefined ? 'GET' : 'POST',
-    headers: getAuthHeaders(),
-    body: body === undefined ? undefined : JSON.stringify(body),
-  })
-  return handleJSONResponse<T>(r)
+  const action = path.split('?')[0]
+  const tradeAction = [
+    'approve',
+    'execute',
+    'stop',
+    'reconcile',
+    'close-position',
+  ].includes(action)
+  const paidData = ['ai500', 'plugin-data'].includes(action)
+  const controller = new AbortController()
+  const timer = setTimeout(
+    () => controller.abort(),
+    tradeAction ? 45000 : 35000
+  )
+  try {
+    const r = await fetch('/api/planning/' + path, {
+      method: body === undefined ? 'GET' : 'POST',
+      headers: getAuthHeaders(),
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: controller.signal,
+    })
+    if (action === 'close-position' && !r.ok) {
+      const data = await r.json().catch(() => null)
+      if (data?.close_state === 'not_submitted')
+        throw new CloseNotSubmittedError(data.error || 'No close was sent.')
+      throw new Error(
+        data?.error ||
+          'Close result is unconfirmed. Check the exchange before retrying.'
+      )
+    }
+    return await handleJSONResponse<T>(r)
+  } catch (error) {
+    if (controller.signal.aborted) {
+      if (tradeAction)
+        throw new Error(
+          'Order request timed out. Its result is unconfirmed. No automatic retry was made. Check Positions & orders and verify trade status before sending another request.'
+        )
+      if (paidData)
+        throw new Error(
+          'AI/data request timed out. Payment result is unconfirmed. No automatic retry; check the original payment before making another request.'
+        )
+      if (action === 'check-status')
+        throw new Error(
+          'Trade status check timed out. The previous trade remains unverified. No new order was submitted by this check.'
+        )
+      throw new Error(
+        'Request timed out. Check the account or service status before trying again. No automatic retry was made.'
+      )
+    }
+    throw error
+  } finally {
+    clearTimeout(timer)
+  }
 }
 export interface PlanningEvent {
   type: string

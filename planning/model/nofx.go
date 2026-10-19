@@ -50,6 +50,10 @@ func (a *NOFXAdapter) Chat(ctx context.Context, messages []Message, tools []Tool
 	}
 	result, e := a.Client.CallWithRequestFull(request)
 	if e != nil {
+		var quoteLimit *payment.PaymentQuoteLimitError
+		if errors.As(e, &quoteLimit) {
+			return Message{}, errors.New(quoteLimit.Error())
+		}
 		// Preserve the upstream paid-call safety classification without exposing
 		// wrapped transport URLs, authorization headers or provider response bodies.
 		var unknown *payment.PaymentOutcomeUnknownError

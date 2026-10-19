@@ -654,6 +654,13 @@ func keccak256Bytes(data ...[]byte) []byte {
 }
 
 // SignX402Payment is the shared EIP-712 signing logic for x402 v2 on Base USDC.
+// PaymentQuoteLimitError is returned before signing or sending any payment.
+type PaymentQuoteLimitError struct{ QuoteMicroUSDC int64 }
+
+func (e *PaymentQuoteLimitError) Error() string {
+	return fmt.Sprintf("Model request quote %.6f USDC exceeds the per-call limit of %.2f USDC. No payment was submitted; shorten the request or choose another model.", float64(e.QuoteMicroUSDC)/1e6, float64(MaxX402PaymentMicroUSDC)/1e6)
+}
+
 func SignX402Payment(privateKey *ecdsa.PrivateKey, senderAddr string, opt X402AcceptOption, resource *X402Resource) (string, error) {
 	if privateKey == nil || !strings.EqualFold(senderAddr, crypto.PubkeyToAddress(privateKey.PublicKey).Hex()) {
 		return "", fmt.Errorf("invalid x402 signing wallet")
@@ -674,8 +681,11 @@ func SignX402Payment(privateKey *ecdsa.PrivateKey, senderAddr string, opt X402Ac
 		return "", fmt.Errorf("refusing x402 timeout %d", opt.MaxTimeoutSeconds)
 	}
 	amountBig, err := parseBigInt(opt.Amount)
-	if err != nil || amountBig.Sign() <= 0 || amountBig.Cmp(big.NewInt(MaxX402PaymentMicroUSDC)) > 0 {
+	if err != nil || amountBig.Sign() <= 0 || !amountBig.IsInt64() {
 		return "", fmt.Errorf("refusing x402 amount %q above the per-call safety policy", opt.Amount)
+	}
+	if amountBig.Cmp(big.NewInt(MaxX402PaymentMicroUSDC)) > 0 {
+		return "", &PaymentQuoteLimitError{QuoteMicroUSDC: amountBig.Int64()}
 	}
 	if opt.Extra != nil {
 		if name := opt.Extra["name"]; name != "" && name != "USD Coin" {

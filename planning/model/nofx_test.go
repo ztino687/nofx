@@ -64,3 +64,12 @@ func TestNOFXAdapterPreservesSafePaymentFailureWithoutRetry(t *testing.T) {
 		}
 	}
 }
+
+func TestQuoteLimitExplainsThatPaymentWasNotSubmitted(t *testing.T) {
+	f := &fakeNOFX{err: fmt.Errorf("private provider detail: %w", &payment.PaymentQuoteLimitError{QuoteMicroUSDC: 1076335})}
+	a := NOFXAdapter{Client: f}
+	_, err := a.Chat(context.Background(), nil, nil)
+	if err == nil || f.calls != 1 || !strings.Contains(err.Error(), "1.076335 USDC") || !strings.Contains(err.Error(), "No payment was submitted") || strings.Contains(err.Error(), "private") {
+		t.Fatal("quote rejection hidden or sensitive detail leaked", err)
+	}
+}

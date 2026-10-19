@@ -780,17 +780,17 @@ function MatrixRow({
             style={{
               border: active(i)
                 ? '1.5px solid var(--tm-ink)'
-                : '1px solid rgba(26,24,19,0.08)',
+                : '1px solid rgba(25,36,52,0.08)',
               borderTop: row.boundary
                 ? '1.5px dashed var(--tm-red)'
-                : '1px solid rgba(26,24,19,0.08)',
+                : '1px solid rgba(25,36,52,0.08)',
               background:
                 cell.notional > 0
                   ? side === 'long'
                     ? `rgba(46,139,87,${alpha.toFixed(2)})`
                     : `rgba(214,67,58,${alpha.toFixed(2)})`
                   : 'transparent',
-              color: alpha > 0.45 ? '#f7f4ec' : 'var(--tm-ink-2)',
+              color: alpha > 0.45 ? '#ffffff' : 'var(--tm-ink-2)',
               cursor: cell.notional > 0 ? 'pointer' : 'default',
               minHeight: 30,
               padding: '2px 1px',

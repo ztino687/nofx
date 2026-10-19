@@ -2,6 +2,7 @@ package harness
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"nofx/planning/core"
@@ -14,6 +15,31 @@ import (
 type loopFixture struct {
 	reads int
 	chats int
+}
+
+func TestModelPlanResultsDoNotRepeatOrderBooksOrHistory(t *testing.T) {
+	plan := core.Plan{ID: "draft", Quantity: "0.1", Risk: "10", Reward: "15", RewardRisk: "1.5", Idea: core.Idea{Name: "Entry", Entry: "100", Stop: "90", Target: "115"}, Snapshot: core.Snapshot{Venue: "okx", Symbol: "BTC-USDT-SWAP", QuoteAsset: "USDT", Bid: "99", Ask: "100"}, Orders: []core.OrderSpec{{Index: 1, Price: "100", Quantity: "0.1"}}}
+	result := map[string]any{"plans": []core.Plan{plan}, "rejected": []string{"TWAP: below minimum quantity"}, "approval_required": true}
+	compact := modelToolResult("propose_plans", result).(map[string]any)
+	raw, err := json.Marshal(compact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Plans    []map[string]any
+		Rejected []string
+		Approval bool `json:"approval_required"`
+	}
+	if err = json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	p := decoded.Plans[0]
+	if p["snapshot"] != nil || p["analysis"] != nil || p["reward_risk"] != "1.5" || p["idea"] == nil || p["orders"] == nil || !decoded.Approval || len(decoded.Rejected) != 1 {
+		t.Fatal("lost decision data or repeated full plan", string(raw))
+	}
+	if result["plans"].([]core.Plan)[0].Snapshot.Bid != "99" {
+		t.Fatal("persisted or UI plan was mutated")
+	}
 }
 
 func (f *loopFixture) Snapshot(context.Context, string, string) (core.Snapshot, error) {
@@ -45,9 +71,9 @@ func TestRepeatedReadLoopTerminatesWithOutcome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Four context reads (including a pagination check), then one additional raw request; duplicate requests
+	// Six context reads (including pagination checks), then one additional raw request; duplicate requests
 	// with reordered JSON must not fetch again or consume all eight model rounds.
-	if f.reads != 5 || f.chats != 4 {
+	if f.reads != 7 || f.chats != 4 {
 		t.Fatalf("unexpected loop: reads=%d chats=%d", f.reads, f.chats)
 	}
 	if len(events) < 2 || events[len(events)-1] != "outcome" {

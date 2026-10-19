@@ -13,11 +13,11 @@ export function RegistrationDisabled() {
   return (
     <div
       className="min-h-screen flex items-center justify-center"
-      style={{ background: '#F1ECE2', color: '#1A1813' }}
+      style={{ background: '#f6f8fc', color: '#192434' }}
     >
       <div className="text-center max-w-md px-6">
         <img
-          src="/icons/nofx.svg"
+          src="/icons/nofx-flow.svg"
           alt="NoFx Logo"
           className="w-16 h-16 mx-auto mb-4"
         />
@@ -29,7 +29,7 @@ export function RegistrationDisabled() {
         </p>
         <button
           className="mt-6 px-4 py-2 rounded-sm text-sm font-semibold transition-colors hover:opacity-90"
-          style={{ background: '#E0483B', color: '#F1ECE2' }}
+          style={{ background: '#295be8', color: '#f6f8fc' }}
           onClick={handleBackToLogin}
         >
           {t('backToLogin', language)}

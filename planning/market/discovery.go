@@ -32,7 +32,7 @@ type MarketList struct {
 // Discovery only reads public exchange metadata and 24h notional volume. It
 // cannot use fee wallets, submit orders, or substitute one venue for another.
 func (c *Client) Markets(ctx context.Context, venue string) (MarketList, error) {
-	if venue != "binance" && venue != "hyperliquid" {
+	if venue != "binance" && venue != "hyperliquid" && venue != "okx" && venue != "bitget" {
 		return MarketList{}, errors.New("Unsupported discovery venue")
 	}
 	result, err, _ := c.discoveryFlight.Do(venue, func() (any, error) {
@@ -48,6 +48,10 @@ func (c *Client) Markets(ctx context.Context, venue string) (MarketList, error) 
 		var err error
 		if venue == "binance" {
 			err = c.binanceMarkets(deadline, &out)
+		} else if venue == "okx" {
+			err = c.okxMarkets(deadline, &out)
+		} else if venue == "bitget" {
+			err = c.bitgetMarkets(deadline, &out)
 		} else {
 			err = c.hyperliquidMarkets(deadline, &out)
 		}

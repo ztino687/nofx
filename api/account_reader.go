@@ -3,7 +3,6 @@ package api
 import (
 	"errors"
 	"nofx/store"
-	"nofx/trader/binance"
 	"nofx/trader/types"
 )
 
@@ -15,9 +14,25 @@ type accountReader interface {
 	GetOpenOrders(string) ([]types.OpenOrder, error)
 }
 
-func (s *Server) accountReadConfig(user, traderID string) (*store.Exchange, error) {
+func (s *Server) accountReadConfig(user, traderID string, exchangeIDs ...string) (*store.Exchange, error) {
 	if user == "" {
 		return nil, errors.New("Authentication is required")
+	}
+	if len(exchangeIDs) > 0 && exchangeIDs[0] != "" {
+		if traderID != "" {
+			bound, err := s.accountReadConfig(user, traderID)
+			if err != nil || bound.ID != exchangeIDs[0] {
+				return nil, errors.New("Trader does not belong to the selected account")
+			}
+		}
+		ex, err := s.store.Exchange().GetByID(user, exchangeIDs[0])
+		if err != nil || !ex.Enabled {
+			return nil, errors.New("Trading account is unavailable or disabled")
+		}
+		if (ex.ExchangeType == "binance" || ex.ExchangeType == "okx" || ex.ExchangeType == "bitget") && ex.Testnet {
+			return nil, errors.New("Testnet account inspection is unsupported; mainnet fallback is disabled")
+		}
+		return ex, nil
 	}
 	owned, err := s.store.Trader().List(user)
 	if err != nil {
@@ -31,23 +46,18 @@ func (s *Server) accountReadConfig(user, traderID string) (*store.Exchange, erro
 		if err != nil || !ex.Enabled {
 			return nil, errors.New("Trading account is unavailable or disabled")
 		}
-		if ex.ExchangeType == "binance" && ex.Testnet {
-			return nil, errors.New("Binance testnet inspection is unsupported; mainnet fallback is disabled")
+		if (ex.ExchangeType == "binance" || ex.ExchangeType == "okx" || ex.ExchangeType == "bitget") && ex.Testnet {
+			return nil, errors.New("Testnet account inspection is unsupported; mainnet fallback is disabled")
 		}
 		return ex, nil
 	}
 	return nil, errors.New("Trader does not belong to this account")
 }
 
-func (s *Server) accountReadClient(user, traderID string) (accountReader, error) {
-	ex, err := s.accountReadConfig(user, traderID)
+func (s *Server) accountReadClient(user, traderID string, exchangeIDs ...string) (accountReader, error) {
+	ex, err := s.accountReadConfig(user, traderID, exchangeIDs...)
 	if err != nil {
 		return nil, err
-	}
-	if ex.ExchangeType == "binance" {
-		// The general Binance constructor changes hedge mode. Reading positions
-		// must use the existing NOFX constructor with no account-setting writes.
-		return binance.NewExecutionTrader(string(ex.APIKey), string(ex.SecretKey), user), nil
 	}
 	return buildExchangeProbeTrader(ex, user)
 }

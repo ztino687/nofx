@@ -4,6 +4,7 @@ import {
   fireEvent,
   waitFor,
   cleanup,
+  within,
 } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
@@ -22,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   exchanges: [] as {
     id: string
     name: string
+    account_name?: string
     exchange_type: string
     enabled: boolean
   }[],
@@ -79,7 +81,7 @@ const plan = (id: string) => ({
   risk: '10',
   reward: '25',
   reward_risk: '2.5',
-  constraints: {},
+  constraints: { min_reward_risk: '2' },
   snapshot: {
     venue: 'binance',
     symbol: 'BTCUSDT',
@@ -94,11 +96,21 @@ const plan = (id: string) => ({
     stop: '79000',
     target: '83000',
     rationale: 'Conditional hypothesis',
-    execution: { kind: 'limit' },
+    execution: { kind: id === 'two' ? 'limit' : 'market' },
   },
   orders: [{ index: 1, price: '80000', quantity: '0.01', offset_seconds: 0 }],
 })
 beforeEach(() => {
+  localStorage.clear()
+  localStorage.setItem(
+    'frontier-batch-v1//ex/binance/BTCUSDT',
+    JSON.stringify({
+      id: 'test-turn',
+      ids: ['one', 'two'],
+      created: new Date().toISOString(),
+    })
+  )
+  Element.prototype.scrollIntoView = vi.fn()
   mocks.models = [
     {
       id: 'model',
@@ -172,7 +184,6 @@ function open() {
 describe('NOFX live planning', () => {
   it('refreshes account sizing and executes only after the explicit review click', async () => {
     open()
-    fireEvent.click(screen.getByRole('tab', { name: /^Plans/ }))
     const card = await screen.findByRole('button', { name: /Test plan one/ })
     fireEvent.click(card)
     await waitFor(() =>
@@ -186,7 +197,11 @@ describe('NOFX live planning', () => {
     expect(screen.queryByLabelText('Live trade confirmation text')).toBeNull()
     expect(mocks.api).toHaveBeenCalledWith(
       'compile',
-      expect.objectContaining({ auto_size: true, exchange_id: 'ex' })
+      expect.objectContaining({
+        auto_size: true,
+        exchange_id: 'ex',
+        constraints: expect.objectContaining({ min_reward_risk: '0' }),
+      })
     )
     expect(
       mocks.api.mock.calls.some(([p]) => p === 'approve' || p === 'execute')
@@ -206,7 +221,6 @@ describe('NOFX live planning', () => {
   })
   it('selecting a plan exits comparison and displays only that plan on the chart', async () => {
     open()
-    fireEvent.click(screen.getByRole('tab', { name: /^Plans/ }))
     await screen.findByRole('button', { name: /Test plan one/ })
     fireEvent.click(
       screen.getByRole('button', { name: 'Compare plans', exact: true })
@@ -225,14 +239,15 @@ describe('NOFX live planning', () => {
   })
   it('custom entry mode does not attach TWAP parameters to a ladder', async () => {
     open()
-    fireEvent.click(screen.getByRole('tab', { name: /^Plans/ }))
     await screen.findByRole('button', { name: /Test plan one/ })
     fireEvent.click(screen.getByText('Chart data & advanced tools'))
     fireEvent.click(
       screen.getByText('Risk budget, entry orders and advanced tools')
     )
     fireEvent.click(
-      screen.getByRole('button', { name: 'Custom limit / ladder / TWAP' })
+      screen.getByRole('button', {
+        name: 'Custom market / limit / ladder / TWAP',
+      })
     )
     fireEvent.change(screen.getByLabelText('Custom entry method'), {
       target: { value: 'ladder' },
@@ -266,7 +281,7 @@ it('opens the only connected account by default and keeps Binance AI500 reachabl
   expect(screen.getByLabelText('Market venue')).toHaveValue('binance')
   expect(screen.getByLabelText('Trading account')).toHaveValue('')
   expect(
-    screen.getByRole('region', { name: 'Frontier setup' })
+    screen.getByRole('region', { name: 'Your connections' })
   ).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: /ETH/ }))
   expect(screen.getByLabelText('Symbol')).toHaveValue('ETHUSDT')
@@ -319,7 +334,6 @@ it('keeps a venue chosen while account configuration is still loading', async ()
 
 it('preflight failure clears busy state without accumulating phantom user messages', async () => {
   open()
-  fireEvent.click(screen.getByRole('tab', { name: /^Plans/ }))
   await screen.findByRole('button', { name: /Test plan one/ })
   const generate = screen.getByRole('button', { name: 'Generate plans' })
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -334,6 +348,10 @@ it('preflight failure clears busy state without accumulating phantom user messag
   ).toBeNull()
   expect(screen.getAllByText('Account sizing unavailable')).toHaveLength(1)
   expect(screen.getByLabelText('Trade idea')).toBeEnabled()
+  expect(
+    JSON.parse(localStorage.getItem('frontier-batch-v1//ex/binance/BTCUSDT')!)
+      .ids
+  ).toEqual(['one', 'two'])
 })
 
 it('account review does not restart model activity or show a planning stop button', async () => {
@@ -346,7 +364,6 @@ it('account review does not restart model activity or show a planning stop butto
     path === 'compile' ? pending : base(path, body)
   )
   open()
-  fireEvent.click(screen.getByRole('tab', { name: /^Plans/ }))
   fireEvent.click(await screen.findByRole('button', { name: /Test plan one/ }))
   fireEvent.click(screen.getByRole('button', { name: 'Review order' }))
   await screen.findByText('Validating account and order details…')
@@ -359,20 +376,20 @@ it('account review does not restart model activity or show a planning stop butto
 it('opens setup before a paid request and retains the original idea when AI is missing', async () => {
   mocks.models = []
   open()
-  await screen.findByRole('region', { name: 'Frontier setup' })
+  await screen.findByRole('region', { name: 'Your connections' })
   const idea = screen.getByRole('textbox', { name: 'Trade idea' })
   fireEvent.change(idea, {
     target: { value: 'Compare a ladder and TWAP for BTC' },
   })
   fireEvent.click(screen.getByRole('button', { name: 'Send' }))
   expect(
-    await screen.findByRole('dialog', { name: 'Enable your AI' })
+    await screen.findByRole('dialog', { name: 'Set up your AI' })
   ).toBeVisible()
   expect(idea).toHaveValue('Compare a ladder and TWAP for BTC')
   expect(mocks.stream).not.toHaveBeenCalled()
 })
 
-it('offers a safe starting point, keeps real account activity separate and supports keyboard views', async () => {
+it('offers a safe starting point, keeps real account activity separate and keeps plans visible outside the assistant', async () => {
   open()
   await waitFor(() =>
     expect(screen.getByLabelText('NOFX AI model')).toHaveValue('model')
@@ -394,22 +411,13 @@ it('offers a safe starting point, keeps real account activity separate and suppo
       ([path]) => path === 'approve' || path === 'execute'
     )
   ).toBe(false)
-  fireEvent.keyDown(screen.getByRole('tab', { name: 'Assistant' }), {
-    key: 'ArrowRight',
-  })
-  expect(screen.getByRole('tab', { name: /^Plans/ })).toHaveAttribute(
-    'aria-selected',
-    'true'
-  )
+  const deck = screen.getByRole('region', { name: 'Entry plans' })
+  expect(deck.closest('.planning-assistant')).toBeNull()
+  expect(
+    screen.getByRole('link', { name: /View entry plans/ })
+  ).toHaveAttribute('href', '#frontier-plans')
   expect(screen.getByLabelText('Trade idea')).toHaveValue(
     'Find a pullback entry with clear risk and exits.'
-  )
-  fireEvent.keyDown(screen.getByRole('tab', { name: /^Plans/ }), {
-    key: 'Home',
-  })
-  expect(screen.getByRole('tab', { name: 'Assistant' })).toHaveAttribute(
-    'aria-selected',
-    'true'
   )
 })
 
@@ -429,10 +437,9 @@ it('shows generated plans automatically and uses the user idea instead of a gene
   })
   fireEvent.click(screen.getByRole('button', { name: 'Generate plans' }))
   await waitFor(() =>
-    expect(screen.getByRole('tab', { name: /^Plans/ })).toHaveAttribute(
-      'aria-selected',
-      'true'
-    )
+    expect(
+      screen.getByRole('region', { name: 'Entry plans' })
+    ).toHaveTextContent('Test plan one')
   )
   expect(mocks.stream).toHaveBeenCalledWith(
     expect.objectContaining({
@@ -466,8 +473,7 @@ it('starts a separate draft from a locked trade without revising or executing th
   await waitFor(() =>
     expect(screen.getByLabelText('NOFX AI model')).toHaveValue('model')
   )
-  fireEvent.click(screen.getByRole('tab', { name: /^Plans/ }))
-  fireEvent.click(await screen.findByText('Past plans · 1'))
+  fireEvent.click(await screen.findByText('Plan history · 1'))
   fireEvent.click(await screen.findByRole('button', { name: /Test plan one/ }))
   fireEvent.change(screen.getByLabelText('Trade idea'), {
     target: { value: 'Generate a new independent entry plan.' },
@@ -487,6 +493,102 @@ it('starts a separate draft from a locked trade without revising or executing th
 })
 
 describe('previous trade recovery', () => {
+  it('reviews a new plan without cancelling an unused approval, then replaces only that approval on confirmation', async () => {
+    const base = mocks.api.getMockImplementation()!
+    const previous = {
+      id: 'unused-run',
+      exchange_id: 'ex',
+      plan_id: 'old',
+      approval_hash: 'previous-hash',
+      state: 'approved',
+      plan: plan('old'),
+      orders: [],
+    }
+    mocks.api.mockImplementation(async (path: string, body?: unknown) =>
+      path === 'state'
+        ? { ...(await base(path, body)), runs: [previous] }
+        : base(path, body)
+    )
+    open()
+    await screen.findByText('BTCUSDT order not submitted')
+    fireEvent.click(screen.getByRole('button', { name: 'Review Market' }))
+    let dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByRole('note')).toHaveTextContent(
+      'replaces your earlier unsubmitted BTCUSDT approval'
+    )
+    expect(
+      mocks.api.mock.calls.some(([path]) =>
+        ['approve', 'execute', 'stop'].includes(path)
+      )
+    ).toBe(false)
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: 'Back to review' })
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Review Single limit' }))
+    dialog = await screen.findByRole('dialog')
+    fireEvent.click(
+      within(dialog).getByRole('button', {
+        name: 'Confirm and place live order',
+      })
+    )
+    await waitFor(() =>
+      expect(mocks.api).toHaveBeenCalledWith(
+        'approve',
+        expect.objectContaining({
+          confirmed: true,
+          replace_approval_id: 'unused-run',
+          replace_approval_hash: 'previous-hash',
+        })
+      )
+    )
+    await waitFor(() =>
+      expect(mocks.api).toHaveBeenCalledWith('execute', {
+        id: 'run',
+        hash: 'locked',
+      })
+    )
+    expect(mocks.api.mock.calls.some(([path]) => path === 'stop')).toBe(false)
+    expect(
+      screen.queryByText(/An earlier order is approved but not submitted/)
+    ).toBeNull()
+  })
+
+  it('does not leave a success notice when previous trade recovery is followed by a review failure', async () => {
+    const base = mocks.api.getMockImplementation()!
+    let closed = false
+    const previous = {
+      id: 'old-run',
+      exchange_id: 'ex',
+      plan_id: 'old',
+      state: 'needs_attention',
+      plan: plan('old'),
+      orders: [],
+    }
+    mocks.api.mockImplementation(async (path: string, body?: unknown) => {
+      if (path === 'state')
+        return {
+          ...(await base(path, body)),
+          runs: [{ ...previous, state: closed ? 'completed' : previous.state }],
+        }
+      if (path === 'check-status') {
+        closed = true
+        return { ...previous, state: 'completed' }
+      }
+      if (path === 'compile')
+        throw new Error('Account balance is temporarily unavailable.')
+      return base(path, body)
+    })
+    open()
+    await screen.findByRole('button', { name: 'Verify status' })
+    fireEvent.click(screen.getByRole('button', { name: 'Review Market' }))
+    expect(
+      await screen.findByText('Account balance is temporarily unavailable.')
+    ).toBeVisible()
+    expect(screen.queryByText(/Previous trade closed/)).toBeNull()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Review Market' })).toBeEnabled()
+  })
+
   it('identifies the blocking trade and checks it without submitting or cancelling orders', async () => {
     const base = mocks.api.getMockImplementation()!
     let closed = false
@@ -514,25 +616,19 @@ describe('previous trade recovery', () => {
       return base(path, body)
     })
     open()
-    const check = await screen.findByRole('button', {
-      name: 'Check previous trade',
-    })
+    await screen.findByRole('button', { name: 'Verify status' })
     expect(
-      screen.getByRole('region', { name: 'Previous trade blocking new orders' })
-    ).toHaveTextContent('BTCUSDT Long')
-    fireEvent.click(screen.getByRole('tab', { name: /^Plans/ }))
+      screen.getByRole('region', { name: 'Current trade status' })
+    ).toHaveTextContent('BTCUSDT trade status needs verification')
     fireEvent.click(
       await screen.findByRole('button', { name: /Test plan one/ })
     )
-    expect(
-      screen.getByRole('button', { name: 'Resolve previous trade above' })
-    ).toBeDisabled()
-    fireEvent.click(check)
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Review order' })).toBeEnabled()
-    )
-    expect(screen.getByRole('status')).toHaveTextContent(
-      'Previous trade is closed'
+    fireEvent.click(screen.getByRole('button', { name: 'Review order' }))
+    await screen.findByRole('dialog')
+    expect(screen.queryByText(/Previous trade closed/)).toBeNull()
+    expect(mocks.api).toHaveBeenCalledWith(
+      'compile',
+      expect.objectContaining({ auto_size: true })
     )
     expect(mocks.api).toHaveBeenCalledWith('check-status', {
       id: 'previous-run',
@@ -566,7 +662,7 @@ describe('previous trade recovery', () => {
     })
     open()
     fireEvent.click(
-      await screen.findByRole('button', { name: 'Check previous trade' })
+      await screen.findByRole('button', { name: /Review Market/ })
     )
     expect(
       await screen.findByText(
@@ -574,12 +670,153 @@ describe('previous trade recovery', () => {
       )
     ).toBeVisible()
     expect(
-      screen.getByRole('region', { name: 'Previous trade blocking new orders' })
+      screen.getByRole('region', { name: 'Current trade status' })
     ).toBeVisible()
     expect(
       mocks.api.mock.calls.some(([path]) =>
-        ['execute', 'approve', 'stop'].includes(path)
+        ['execute', 'approve', 'stop', 'compile'].includes(path)
       )
     ).toBe(false)
   })
+  it('clears a failed verification after the exchange confirms closure, without submitting an order', async () => {
+    const base = mocks.api.getMockImplementation()!
+    let closed = false
+    let attempts = 0
+    const old = {
+      id: 'previous-run',
+      exchange_id: 'ex',
+      plan_id: 'old',
+      state: 'needs_attention',
+      plan: plan('old'),
+      orders: [],
+    }
+    mocks.api.mockImplementation(async (path: string, body?: unknown) => {
+      if (path === 'state')
+        return {
+          ...(await base(path, body)),
+          runs: [{ ...old, state: closed ? 'completed' : old.state }],
+        }
+      if (path === 'check-status') {
+        if (++attempts === 1)
+          throw new Error('Could not confirm stop order. Check the exchange.')
+        closed = true
+        return { ...old, state: 'completed' }
+      }
+      return base(path, body)
+    })
+    open()
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Verify status' })
+    )
+    const blocker = screen.getByRole('region', { name: 'Current trade status' })
+    expect(await within(blocker).findByRole('alert')).toHaveTextContent(
+      'Could not confirm stop order'
+    )
+    const retry = screen.getByRole('button', { name: 'Verify status' })
+    await waitFor(() => expect(retry).toBeEnabled())
+    fireEvent.click(retry)
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('region', { name: 'Current trade status' })
+      ).toBeNull()
+    )
+    expect(
+      screen.queryByText('Could not confirm stop order. Check the exchange.')
+    ).toBeNull()
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Previous trade is closed'
+    )
+    expect(
+      mocks.api.mock.calls.some(([path]) =>
+        ['execute', 'approve', 'stop', 'reconcile'].includes(path)
+      )
+    ).toBe(false)
+  })
+})
+
+it('keeps expired drafts visible and refreshes them before review, without executing', async () => {
+  const base = mocks.api.getMockImplementation()!
+  const stale = {
+    ...plan('one'),
+    expires: new Date(Date.now() - 60000).toISOString(),
+  }
+  mocks.api.mockImplementation(async (path: string, body?: unknown) =>
+    path === 'state'
+      ? {
+          ...(await base(path, body)),
+          records: { one: { plan: stale, state: 'draft' } },
+        }
+      : base(path, body)
+  )
+  open()
+  fireEvent.click(await screen.findByRole('button', { name: /Review Market/ }))
+  await screen.findByRole('dialog')
+  expect(mocks.api).toHaveBeenCalledWith(
+    'compile',
+    expect.objectContaining({ auto_size: true })
+  )
+  expect(
+    mocks.api.mock.calls.some(([p]) => p === 'approve' || p === 'execute')
+  ).toBe(false)
+})
+
+it('distinguishes Binance accounts by their names and remembers each venue selection', async () => {
+  mocks.exchanges = [
+    {
+      id: 'binance-a',
+      name: 'Binance Futures',
+      account_name: 'Main portfolio',
+      exchange_type: 'binance',
+      enabled: true,
+    },
+    {
+      id: 'binance-b',
+      name: 'Binance Futures',
+      account_name: 'Second portfolio',
+      exchange_type: 'binance',
+      enabled: true,
+    },
+    {
+      id: 'hl',
+      name: 'Hyperliquid',
+      exchange_type: 'hyperliquid',
+      enabled: true,
+    },
+  ]
+  const view = render(
+    <MemoryRouter>
+      <TradingPlanningPage />
+    </MemoryRouter>
+  )
+  await waitFor(() =>
+    expect(screen.getByLabelText('Trading account')).toHaveValue('binance-a')
+  )
+  expect(
+    screen.getByRole('option', { name: 'Second portfolio · binance' })
+  ).toBeInTheDocument()
+  fireEvent.change(screen.getByLabelText('Symbol'), {
+    target: { value: 'ETHUSDT' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Open market' }))
+  fireEvent.change(screen.getByLabelText('Trading account'), {
+    target: { value: 'binance-b' },
+  })
+  expect(screen.getByLabelText('Symbol')).toHaveValue('ETHUSDT')
+  fireEvent.change(screen.getByLabelText('Market venue'), {
+    target: { value: 'hyperliquid' },
+  })
+  fireEvent.change(screen.getByLabelText('Market venue'), {
+    target: { value: 'binance' },
+  })
+  expect(screen.getByLabelText('Trading account')).toHaveValue('binance-b')
+  view.unmount()
+  render(
+    <MemoryRouter>
+      <TradingPlanningPage />
+    </MemoryRouter>
+  )
+  await waitFor(() =>
+    expect(screen.getByLabelText('Trading account')).toHaveValue('binance-b')
+  )
+  expect(mocks.stream).not.toHaveBeenCalled()
 })

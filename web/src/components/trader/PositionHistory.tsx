@@ -72,13 +72,13 @@ function StatCard({
     <div
       className="rounded-lg p-4 transition-all duration-200 hover:scale-[1.02]"
       style={{
-        background: '#F7F4EC',
-        border: '1px solid rgba(26,24,19,0.14)',
+        background: '#ffffff',
+        border: '1px solid rgba(25,36,52,0.14)',
       }}
     >
       <div className="flex items-center gap-2 mb-2">
         <span className="text-lg">{icon}</span>
-        <span className="text-xs" style={{ color: '#8A8478' }}>
+        <span className="text-xs" style={{ color: '#707e92' }}>
           {title}
         </span>
         {metricKey && (
@@ -88,18 +88,18 @@ function StatCard({
       <div className="flex items-baseline gap-1">
         <span
           className="text-xl font-bold font-mono"
-          style={{ color: color || '#1A1813' }}
+          style={{ color: color || '#192434' }}
         >
           {value}
         </span>
         {suffix && (
-          <span className="text-sm" style={{ color: '#8A8478' }}>
+          <span className="text-sm" style={{ color: '#707e92' }}>
             {suffix}
           </span>
         )}
       </div>
       {subtitle && (
-        <div className="text-xs mt-1" style={{ color: '#8A8478' }}>
+        <div className="text-xs mt-1" style={{ color: '#707e92' }}>
           {subtitle}
         </div>
       )}
@@ -113,24 +113,24 @@ function SymbolStatsRow({ stat }: { stat: SymbolStats }) {
   const winRate = stat.win_rate || 0
   const pnlColor = totalPnl >= 0 ? '#2E8B57' : '#D6433A'
   const winRateColor =
-    winRate >= 60 ? '#2E8B57' : winRate >= 40 ? '#E0483B' : '#D6433A'
+    winRate >= 60 ? '#2E8B57' : winRate >= 40 ? '#295be8' : '#D6433A'
 
   return (
     <div
       className="flex items-center justify-between p-3 rounded-lg transition-all duration-200 hover:bg-nofx-gold/10"
-      style={{ borderBottom: '1px solid rgba(26,24,19,0.14)' }}
+      style={{ borderBottom: '1px solid rgba(25,36,52,0.14)' }}
     >
       <div className="flex items-center gap-3">
-        <span className="font-mono font-semibold" style={{ color: '#1A1813' }}>
+        <span className="font-mono font-semibold" style={{ color: '#192434' }}>
           {(stat.symbol || '').replace('USDT', '')}
         </span>
-        <span className="text-xs" style={{ color: '#8A8478' }}>
+        <span className="text-xs" style={{ color: '#707e92' }}>
           {stat.total_trades || 0} trades
         </span>
       </div>
       <div className="flex items-center gap-6">
         <div className="text-right">
-          <div className="text-xs" style={{ color: '#8A8478' }}>
+          <div className="text-xs" style={{ color: '#707e92' }}>
             Win Rate
           </div>
           <div className="font-mono font-semibold" style={{ color: winRateColor }}>
@@ -138,7 +138,7 @@ function SymbolStatsRow({ stat }: { stat: SymbolStats }) {
           </div>
         </div>
         <div className="text-right min-w-[80px]">
-          <div className="text-xs" style={{ color: '#8A8478' }}>
+          <div className="text-xs" style={{ color: '#707e92' }}>
             P&L
           </div>
           <div className="font-mono font-semibold" style={{ color: pnlColor }}>
@@ -165,7 +165,7 @@ function DirectionStatsCard({ stat, language }: { stat: DirectionStats; language
     <div
       className="rounded-lg p-4"
       style={{
-        background: '#F7F4EC',
+        background: '#ffffff',
         border: `1px solid ${iconColor}33`,
       }}
     >
@@ -180,15 +180,15 @@ function DirectionStatsCard({ stat, language }: { stat: DirectionStats; language
       </div>
       <div className="grid grid-cols-4 gap-4">
         <div>
-          <div className="text-xs mb-1" style={{ color: '#8A8478' }}>
+          <div className="text-xs mb-1" style={{ color: '#707e92' }}>
             {t('positionHistory.trades', language)}
           </div>
-          <div className="font-mono font-semibold" style={{ color: '#1A1813' }}>
+          <div className="font-mono font-semibold" style={{ color: '#192434' }}>
             {tradeCount}
           </div>
         </div>
         <div>
-          <div className="text-xs mb-1" style={{ color: '#8A8478' }}>
+          <div className="text-xs mb-1" style={{ color: '#707e92' }}>
             {t('positionHistory.winRate', language)}
           </div>
           <div
@@ -198,7 +198,7 @@ function DirectionStatsCard({ stat, language }: { stat: DirectionStats; language
                 winRate >= 60
                   ? '#2E8B57'
                   : winRate >= 40
-                    ? '#E0483B'
+                    ? '#295be8'
                     : '#D6433A',
             }}
           >
@@ -206,7 +206,7 @@ function DirectionStatsCard({ stat, language }: { stat: DirectionStats; language
           </div>
         </div>
         <div>
-          <div className="text-xs mb-1" style={{ color: '#8A8478' }}>
+          <div className="text-xs mb-1" style={{ color: '#707e92' }}>
             {t('positionHistory.totalPnL', language)}
           </div>
           <div className="font-mono font-semibold" style={{ color: pnlColor }}>
@@ -215,7 +215,7 @@ function DirectionStatsCard({ stat, language }: { stat: DirectionStats; language
           </div>
         </div>
         <div>
-          <div className="text-xs mb-1" style={{ color: '#8A8478' }}>
+          <div className="text-xs mb-1" style={{ color: '#707e92' }}>
             {t('positionHistory.avgPnL', language)}
           </div>
           <div className="font-mono font-semibold" style={{ color: avgPnl >= 0 ? '#2E8B57' : '#D6433A' }}>
@@ -260,12 +260,12 @@ function PositionRow({ position }: { position: HistoricalPosition }) {
   return (
     <tr
       className="transition-all duration-200 hover:bg-nofx-gold/10"
-      style={{ borderBottom: '1px solid rgba(26,24,19,0.14)' }}
+      style={{ borderBottom: '1px solid rgba(25,36,52,0.14)' }}
     >
       {/* Symbol */}
       <td className="py-3 px-4">
         <div className="flex items-center gap-2">
-          <span className="font-mono font-semibold" style={{ color: '#1A1813' }}>
+          <span className="font-mono font-semibold" style={{ color: '#192434' }}>
             {(position.symbol || '').replace('USDT', '')}
           </span>
           <span
@@ -282,22 +282,22 @@ function PositionRow({ position }: { position: HistoricalPosition }) {
       </td>
 
       {/* Entry Price */}
-      <td className="py-3 px-4 text-right font-mono" style={{ color: '#1A1813' }}>
+      <td className="py-3 px-4 text-right font-mono" style={{ color: '#192434' }}>
         {formatPrice(entryPrice)}
       </td>
 
       {/* Exit Price */}
-      <td className="py-3 px-4 text-right font-mono" style={{ color: '#1A1813' }}>
+      <td className="py-3 px-4 text-right font-mono" style={{ color: '#192434' }}>
         {formatPrice(exitPrice)}
       </td>
 
       {/* Quantity */}
-      <td className="py-3 px-4 text-right font-mono" style={{ color: '#8A8478' }}>
+      <td className="py-3 px-4 text-right font-mono" style={{ color: '#707e92' }}>
         {formatQuantity(displayQty)}
       </td>
 
       {/* Position Value (Entry Price * Quantity) */}
-      <td className="py-3 px-4 text-right font-mono" style={{ color: '#1A1813' }}>
+      <td className="py-3 px-4 text-right font-mono" style={{ color: '#192434' }}>
         {formatNumber(entryPrice * displayQty)}
       </td>
 
@@ -314,19 +314,19 @@ function PositionRow({ position }: { position: HistoricalPosition }) {
       </td>
 
       {/* Fee - show more precision for small fees */}
-      <td className="py-3 px-4 text-right font-mono text-xs" style={{ color: '#8A8478' }}>
+      <td className="py-3 px-4 text-right font-mono text-xs" style={{ color: '#707e92' }}>
         -{((position.fee || 0) < 0.01 && (position.fee || 0) > 0)
           ? (position.fee || 0).toFixed(4)
           : (position.fee || 0).toFixed(2)}
       </td>
 
       {/* Duration */}
-      <td className="py-3 px-4 text-center text-sm" style={{ color: '#8A8478' }}>
+      <td className="py-3 px-4 text-center text-sm" style={{ color: '#707e92' }}>
         {formatDuration(holdingMinutes)}
       </td>
 
       {/* Exit Time */}
-      <td className="py-3 px-4 text-right text-xs" style={{ color: '#8A8478' }}>
+      <td className="py-3 px-4 text-right text-xs" style={{ color: '#707e92' }}>
         {formatDate(position.exit_time)}
       </td>
     </tr>
@@ -456,7 +456,7 @@ export function PositionHistory({ traderId }: PositionHistoryProps) {
     return (
       <div
         className="flex items-center justify-center p-12"
-        style={{ color: '#8A8478' }}
+        style={{ color: '#707e92' }}
       >
         <div className="animate-spin mr-3">
           <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24">
@@ -500,15 +500,15 @@ export function PositionHistory({ traderId }: PositionHistoryProps) {
       <div
         className="rounded-lg p-12 text-center"
         style={{
-          background: '#F7F4EC',
-          border: '1px solid rgba(26,24,19,0.14)',
+          background: '#ffffff',
+          border: '1px solid rgba(25,36,52,0.14)',
         }}
       >
         <div className="text-4xl mb-4">📊</div>
-        <div className="text-lg font-semibold mb-2" style={{ color: '#1A1813' }}>
+        <div className="text-lg font-semibold mb-2" style={{ color: '#192434' }}>
           {t('positionHistory.noHistory', language)}
         </div>
-        <div style={{ color: '#8A8478' }}>
+        <div style={{ color: '#707e92' }}>
           {t('positionHistory.noHistoryDesc', language)}
         </div>
       </div>
@@ -536,7 +536,7 @@ export function PositionHistory({ traderId }: PositionHistoryProps) {
               (stats.win_rate || 0) >= 60
                 ? '#2E8B57'
                 : (stats.win_rate || 0) >= 40
-                  ? '#E0483B'
+                  ? '#295be8'
                   : '#D6433A'
             }
             metricKey="win_rate"
@@ -555,7 +555,7 @@ export function PositionHistory({ traderId }: PositionHistoryProps) {
             icon="📈"
             title={t('positionHistory.profitFactor', language)}
             value={(stats.profit_factor || 0).toFixed(2)}
-            color={(stats.profit_factor || 0) >= 1.5 ? '#2E8B57' : (stats.profit_factor || 0) >= 1 ? '#E0483B' : '#D6433A'}
+            color={(stats.profit_factor || 0) >= 1.5 ? '#2E8B57' : (stats.profit_factor || 0) >= 1 ? '#295be8' : '#D6433A'}
             subtitle={t('positionHistory.profitFactorDesc', language)}
             metricKey="profit_factor"
             language={language}
@@ -564,7 +564,7 @@ export function PositionHistory({ traderId }: PositionHistoryProps) {
             icon="⚖️"
             title={t('positionHistory.plRatio', language)}
             value={profitLossRatio === Infinity ? '∞' : profitLossRatio.toFixed(2)}
-            color={profitLossRatio >= 1.5 ? '#2E8B57' : profitLossRatio >= 1 ? '#E0483B' : '#D6433A'}
+            color={profitLossRatio >= 1.5 ? '#2E8B57' : profitLossRatio >= 1 ? '#295be8' : '#D6433A'}
             subtitle={t('positionHistory.plRatioDesc', language)}
             metricKey="expectancy"
             language={language}
@@ -579,7 +579,7 @@ export function PositionHistory({ traderId }: PositionHistoryProps) {
             icon="📉"
             title={t('positionHistory.sharpeRatio', language)}
             value={(stats.sharpe_ratio || 0).toFixed(2)}
-            color={(stats.sharpe_ratio || 0) >= 1 ? '#2E8B57' : (stats.sharpe_ratio || 0) >= 0 ? '#E0483B' : '#D6433A'}
+            color={(stats.sharpe_ratio || 0) >= 1 ? '#2E8B57' : (stats.sharpe_ratio || 0) >= 0 ? '#295be8' : '#D6433A'}
             subtitle={t('positionHistory.sharpeRatioDesc', language)}
             metricKey="sharpe_ratio"
             language={language}
@@ -589,7 +589,7 @@ export function PositionHistory({ traderId }: PositionHistoryProps) {
             title={t('positionHistory.maxDrawdown', language)}
             value={(stats.max_drawdown_pct || 0).toFixed(1)}
             suffix="%"
-            color={(stats.max_drawdown_pct || 0) <= 10 ? '#2E8B57' : (stats.max_drawdown_pct || 0) <= 20 ? '#E0483B' : '#D6433A'}
+            color={(stats.max_drawdown_pct || 0) <= 10 ? '#2E8B57' : (stats.max_drawdown_pct || 0) <= 20 ? '#295be8' : '#D6433A'}
             metricKey="max_drawdown"
             language={language}
           />
@@ -633,13 +633,13 @@ export function PositionHistory({ traderId }: PositionHistoryProps) {
         <div
           className="rounded-lg p-4"
           style={{
-            background: '#F7F4EC',
-            border: '1px solid rgba(26,24,19,0.14)',
+            background: '#ffffff',
+            border: '1px solid rgba(25,36,52,0.14)',
           }}
         >
           <div className="flex items-center gap-2 mb-4">
             <span className="text-lg">🏅</span>
-            <span className="font-semibold" style={{ color: '#1A1813' }}>
+            <span className="font-semibold" style={{ color: '#192434' }}>
               {t('positionHistory.symbolPerformance', language)}
             </span>
           </div>
@@ -655,17 +655,17 @@ export function PositionHistory({ traderId }: PositionHistoryProps) {
       <div
         className="rounded-lg overflow-hidden"
         style={{
-          background: '#F7F4EC',
-          border: '1px solid rgba(26,24,19,0.14)',
+          background: '#ffffff',
+          border: '1px solid rgba(25,36,52,0.14)',
         }}
       >
         {/* Filters */}
         <div
           className="flex flex-wrap items-center gap-4 p-4"
-          style={{ borderBottom: '1px solid rgba(26,24,19,0.14)' }}
+          style={{ borderBottom: '1px solid rgba(25,36,52,0.14)' }}
         >
           <div className="flex items-center gap-2">
-            <span className="text-sm" style={{ color: '#8A8478' }}>
+            <span className="text-sm" style={{ color: '#707e92' }}>
               {t('positionHistory.symbol', language)}:
             </span>
             <NofxSelect
@@ -677,26 +677,26 @@ export function PositionHistory({ traderId }: PositionHistoryProps) {
               ]}
               className="rounded-sm px-3 py-1.5 text-sm"
               style={{
-                background: '#E8E2D5',
-                border: '1px solid rgba(26,24,19,0.14)',
-                color: '#1A1813',
+                background: '#edf1f7',
+                border: '1px solid rgba(25,36,52,0.14)',
+                color: '#192434',
               }}
             />
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-sm" style={{ color: '#8A8478' }}>
+            <span className="text-sm" style={{ color: '#707e92' }}>
               {t('positionHistory.side', language)}:
             </span>
-            <div className="flex rounded-sm overflow-hidden" style={{ border: '1px solid rgba(26,24,19,0.14)' }}>
+            <div className="flex rounded-sm overflow-hidden" style={{ border: '1px solid rgba(25,36,52,0.14)' }}>
               {['all', 'LONG', 'SHORT'].map((side) => (
                 <button
                   key={side}
                   onClick={() => setFilterSide(side)}
                   className="px-3 py-1.5 text-sm capitalize transition-colors"
                   style={{
-                    background: filterSide === side ? '#E8E2D5' : 'transparent',
-                    color: filterSide === side ? '#1A1813' : '#8A8478',
+                    background: filterSide === side ? '#edf1f7' : 'transparent',
+                    color: filterSide === side ? '#192434' : '#707e92',
                   }}
                 >
                   {side === 'all' ? t('positionHistory.all', language) : side}
@@ -706,7 +706,7 @@ export function PositionHistory({ traderId }: PositionHistoryProps) {
           </div>
 
           <div className="flex items-center gap-2 ml-auto">
-            <span className="text-sm" style={{ color: '#8A8478' }}>
+            <span className="text-sm" style={{ color: '#707e92' }}>
               {t('positionHistory.sort', language)}:
             </span>
             <NofxSelect
@@ -724,9 +724,9 @@ export function PositionHistory({ traderId }: PositionHistoryProps) {
               ]}
               className="rounded-sm px-3 py-1.5 text-sm"
               style={{
-                background: '#E8E2D5',
-                border: '1px solid rgba(26,24,19,0.14)',
-                color: '#1A1813',
+                background: '#edf1f7',
+                border: '1px solid rgba(25,36,52,0.14)',
+                color: '#192434',
               }}
             />
           </div>
@@ -736,58 +736,58 @@ export function PositionHistory({ traderId }: PositionHistoryProps) {
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
-              <tr style={{ background: '#E8E2D5' }}>
+              <tr style={{ background: '#edf1f7' }}>
                 <th
                   className="py-3 px-4 text-left text-xs font-semibold uppercase tracking-wider"
-                  style={{ color: '#8A8478' }}
+                  style={{ color: '#707e92' }}
                 >
                   {t('positionHistory.symbol', language)}
                 </th>
                 <th
                   className="py-3 px-4 text-right text-xs font-semibold uppercase tracking-wider"
-                  style={{ color: '#8A8478' }}
+                  style={{ color: '#707e92' }}
                 >
                   {t('positionHistory.entry', language)}
                 </th>
                 <th
                   className="py-3 px-4 text-right text-xs font-semibold uppercase tracking-wider"
-                  style={{ color: '#8A8478' }}
+                  style={{ color: '#707e92' }}
                 >
                   {t('positionHistory.exit', language)}
                 </th>
                 <th
                   className="py-3 px-4 text-right text-xs font-semibold uppercase tracking-wider"
-                  style={{ color: '#8A8478' }}
+                  style={{ color: '#707e92' }}
                 >
                   {t('positionHistory.qty', language)}
                 </th>
                 <th
                   className="py-3 px-4 text-right text-xs font-semibold uppercase tracking-wider"
-                  style={{ color: '#8A8478' }}
+                  style={{ color: '#707e92' }}
                 >
                   {t('positionHistory.value', language)}
                 </th>
                 <th
                   className="py-3 px-4 text-right text-xs font-semibold uppercase tracking-wider"
-                  style={{ color: '#8A8478' }}
+                  style={{ color: '#707e92' }}
                 >
                   {t('positionHistory.pnl', language)}
                 </th>
                 <th
                   className="py-3 px-4 text-right text-xs font-semibold uppercase tracking-wider"
-                  style={{ color: '#8A8478' }}
+                  style={{ color: '#707e92' }}
                 >
                   {t('positionHistory.fee', language)}
                 </th>
                 <th
                   className="py-3 px-4 text-center text-xs font-semibold uppercase tracking-wider"
-                  style={{ color: '#8A8478' }}
+                  style={{ color: '#707e92' }}
                 >
                   {t('positionHistory.duration', language)}
                 </th>
                 <th
                   className="py-3 px-4 text-right text-xs font-semibold uppercase tracking-wider"
-                  style={{ color: '#8A8478' }}
+                  style={{ color: '#707e92' }}
                 >
                   {t('positionHistory.closedAt', language)}
                 </th>
@@ -804,7 +804,7 @@ export function PositionHistory({ traderId }: PositionHistoryProps) {
         {/* Footer with Pagination */}
         <div
           className="flex flex-wrap items-center justify-between gap-4 p-4 text-sm"
-          style={{ borderTop: '1px solid rgba(26,24,19,0.14)', color: '#8A8478' }}
+          style={{ borderTop: '1px solid rgba(25,36,52,0.14)', color: '#707e92' }}
         >
           {/* Left: Count info */}
           <div className="flex items-center gap-4">
@@ -837,7 +837,7 @@ export function PositionHistory({ traderId }: PositionHistoryProps) {
           <div className="flex items-center gap-3">
             {/* Page size selector */}
             <div className="flex items-center gap-2">
-              <span className="text-xs" style={{ color: '#8A8478' }}>
+              <span className="text-xs" style={{ color: '#707e92' }}>
                 {language === 'zh' ? 'Per page' : 'Per page'}:
               </span>
               <NofxSelect
@@ -850,9 +850,9 @@ export function PositionHistory({ traderId }: PositionHistoryProps) {
                 ]}
                 className="rounded-sm px-2 py-1 text-sm"
                 style={{
-                  background: '#E8E2D5',
-                  border: '1px solid rgba(26,24,19,0.14)',
-                  color: '#1A1813',
+                  background: '#edf1f7',
+                  border: '1px solid rgba(25,36,52,0.14)',
+                  color: '#192434',
                 }}
               />
             </div>
@@ -865,8 +865,8 @@ export function PositionHistory({ traderId }: PositionHistoryProps) {
                   disabled={currentPage === 1}
                   className="px-2 py-1 rounded-sm text-xs transition-colors disabled:opacity-30"
                   style={{
-                    background: currentPage === 1 ? 'transparent' : '#E8E2D5',
-                    color: '#1A1813',
+                    background: currentPage === 1 ? 'transparent' : '#edf1f7',
+                    color: '#192434',
                   }}
                 >
                   «
@@ -876,13 +876,13 @@ export function PositionHistory({ traderId }: PositionHistoryProps) {
                   disabled={currentPage === 1}
                   className="px-2 py-1 rounded-sm text-xs transition-colors disabled:opacity-30"
                   style={{
-                    background: currentPage === 1 ? 'transparent' : '#E8E2D5',
-                    color: '#1A1813',
+                    background: currentPage === 1 ? 'transparent' : '#edf1f7',
+                    color: '#192434',
                   }}
                 >
                   ‹
                 </button>
-                <span className="px-3 text-xs" style={{ color: '#1A1813' }}>
+                <span className="px-3 text-xs" style={{ color: '#192434' }}>
                   {currentPage} / {totalPages}
                 </span>
                 <button
@@ -890,8 +890,8 @@ export function PositionHistory({ traderId }: PositionHistoryProps) {
                   disabled={currentPage === totalPages}
                   className="px-2 py-1 rounded-sm text-xs transition-colors disabled:opacity-30"
                   style={{
-                    background: currentPage === totalPages ? 'transparent' : '#E8E2D5',
-                    color: '#1A1813',
+                    background: currentPage === totalPages ? 'transparent' : '#edf1f7',
+                    color: '#192434',
                   }}
                 >
                   ›
@@ -901,8 +901,8 @@ export function PositionHistory({ traderId }: PositionHistoryProps) {
                   disabled={currentPage === totalPages}
                   className="px-2 py-1 rounded-sm text-xs transition-colors disabled:opacity-30"
                   style={{
-                    background: currentPage === totalPages ? 'transparent' : '#E8E2D5',
-                    color: '#1A1813',
+                    background: currentPage === totalPages ? 'transparent' : '#edf1f7',
+                    color: '#192434',
                   }}
                 >
                   »

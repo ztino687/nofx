@@ -462,10 +462,16 @@ export const dataApi = {
     return result.data!
   },
 
-  async getPositions(traderId?: string, silent?: boolean): Promise<Position[]> {
-    const url = traderId
-      ? `${API_BASE}/positions?trader_id=${traderId}`
-      : `${API_BASE}/positions`
+  async getPositions(
+    traderId?: string,
+    silent?: boolean,
+    exchangeId?: string
+  ): Promise<Position[]> {
+    const url = exchangeId
+      ? `${API_BASE}/positions?exchange_id=${encodeURIComponent(exchangeId)}`
+      : traderId
+        ? `${API_BASE}/positions?trader_id=${encodeURIComponent(traderId)}`
+        : `${API_BASE}/positions`
     const result = await httpClient.request<Position[]>(url, { silent })
     if (!result.success) throw new Error('Failed to fetch positions')
     return result.data!

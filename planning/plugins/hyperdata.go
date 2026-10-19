@@ -75,7 +75,7 @@ func (h Hyperdata) Read(ctx context.Context, id string, q Request) (Result, erro
 		return out, errors.New("Offline mode does not read paid live data")
 	}
 	if q.Venue != "hyperliquid" {
-		return out, errors.New("This component supports matching Hyperliquid markets only; Binance and OKX data are not substituted")
+		return out, errors.New("This component supports matching Hyperliquid markets only; other exchange data are not substituted")
 	}
 	resource := map[string]string{"hyperdata_cost": "riskbins", "hyperdata_winrate": "winrate-map", "hyperdata_profit": "profit-leaderboard"}[id]
 	if resource == "" {

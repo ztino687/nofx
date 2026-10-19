@@ -78,15 +78,15 @@ function LoadingScreen() {
   return (
     <div
       className="min-h-screen flex items-center justify-center"
-      style={{ background: '#F1ECE2' }}
+      style={{ background: '#f6f8fc' }}
     >
       <div className="text-center">
         <img
-          src="/icons/nofx.svg"
+          src="/icons/nofx-flow.svg"
           alt="NoFx Logo"
           className="w-16 h-16 mx-auto mb-4 animate-pulse"
         />
-        <p style={{ color: '#1A1813' }}>{t('loading', language)}</p>
+        <p style={{ color: '#192434' }}>{t('loading', language)}</p>
       </div>
     </div>
   )
@@ -164,8 +164,8 @@ function AppChrome({
 
   return (
     <div
-      className="min-h-screen"
-      style={{ background: '#F1ECE2', color: '#1A1813' }}
+      className="nofx-shell min-h-screen"
+      style={{ background: '#f6f8fc', color: '#192434' }}
     >
       <HeaderBar
         isLoggedIn={!!user}
@@ -178,7 +178,7 @@ function AppChrome({
       />
 
       {wrapInMain ? (
-        <main className="min-h-screen pt-16">{content}</main>
+        <main className="min-h-screen pt-[72px]">{content}</main>
       ) : (
         content
       )}
@@ -392,6 +392,10 @@ function DashboardRoute() {
 export function AppRoutes() {
   const { user, token, isLoading } = useAuth()
   const { config: systemConfig, loading: configLoading } = useSystemConfig()
+  const { pathname } = useLocation()
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' })
+  }, [pathname])
   const isAuthenticated = !!user && !!token
 
   if (isLoading || configLoading) {

@@ -1,3 +1,4 @@
+import { BrandLogo } from '../common/BrandLogo'
 import React, { useState, useEffect } from 'react'
 import { Eye, EyeOff, Loader2, ArrowRight } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
@@ -62,53 +63,48 @@ export function LoginPage() {
   }
 
   return (
-    <DeepVoidBackground disableAnimation>
-
+    <DeepVoidBackground className="nofx-auth" disableAnimation>
       {/* Self-contained centering grid — works regardless of parent flex setup */}
       <main className="flex-1 grid lg:grid-cols-2">
         {/* ───────── LEFT: brand panel (desktop only) ───────── */}
         <section className="hidden lg:flex flex-col justify-between p-12 xl:p-16 relative overflow-hidden">
-          {/* Ambient vermilion halo */}
+          {/* Soft brand background */}
           <div className="absolute -left-32 top-1/3 w-md h-112 bg-nofx-gold/6 rounded-full blur-3xl pointer-events-none" />
           <div className="absolute -right-16 bottom-0 w-72 h-72 bg-nofx-accent/4 rounded-full blur-3xl pointer-events-none" />
 
           {/* Brand mark */}
           <div className="flex items-center gap-3 relative">
-            <img src="/icons/nofx.svg" alt="NOFX" className="w-9 h-9" />
-            <div className="font-mono font-bold text-xl tracking-tight text-nofx-text">
-              NOFX<span className="text-nofx-gold">.</span>
-            </div>
+            <BrandLogo />
           </div>
 
           {/* Headline */}
           <div className="relative max-w-lg">
-            <div className="inline-flex items-center gap-2 mb-7 px-3 py-1 rounded-full border border-nofx-success/25 bg-nofx-success/6">
-              <div className="w-1.5 h-1.5 rounded-full bg-nofx-success animate-pulse" />
-              <span className="text-[10.5px] font-mono tracking-[0.18em] text-nofx-success uppercase">
-                Terminal Online
+            <div className="inline-flex items-center gap-2 mb-7 px-3 py-1 rounded-full border border-nofx-gold/20 bg-nofx-gold/6">
+              <div className="w-1.5 h-1.5 rounded-full bg-nofx-gold" />
+              <span className="text-xs font-medium text-nofx-gold">
+                Your trading workspace
               </span>
             </div>
             <h2 className="text-4xl xl:text-5xl font-bold tracking-tight text-nofx-text leading-[1.05]">
               {language === 'zh' ? (
                 <>
-                  AI-Powered<br />
+                  AI-Powered
+                  <br />
                   <span className="text-nofx-gold">
                     Multi-Market Trading Terminal
                   </span>
                 </>
               ) : language === 'id' ? (
                 <>
-                  Terminal Trading<br />
-                  <span className="text-nofx-gold">
-                    Multi-Pasar AI
-                  </span>
+                  Terminal Trading
+                  <br />
+                  <span className="text-nofx-gold">Multi-Pasar AI</span>
                 </>
               ) : (
                 <>
-                  AI-Powered<br />
-                  <span className="text-nofx-gold">
-                    Trading Terminal
-                  </span>
+                  AI-Powered
+                  <br />
+                  <span className="text-nofx-gold">Trading Terminal</span>
                 </>
               )}
             </h2>
@@ -116,8 +112,8 @@ export function LoginPage() {
               {language === 'zh'
                 ? 'Plug into 10+ exchanges including Hyperliquid, OKX, Aster, and 7 LLM models. Deploy 24/7 automated strategies with natural language.'
                 : language === 'id'
-                ? 'Hubungkan ke 10+ bursa termasuk Hyperliquid, OKX, Aster dan 7 model LLM. Terapkan strategi otomatis 24/7 dengan bahasa alami.'
-                : 'Plug into 10+ exchanges including Hyperliquid, OKX, Aster, and 7 LLM models. Deploy 24/7 automated strategies with natural language.'}
+                  ? 'Hubungkan ke 10+ bursa termasuk Hyperliquid, OKX, Aster dan 7 model LLM. Terapkan strategi otomatis 24/7 dengan bahasa alami.'
+                  : 'Plug into 10+ exchanges including Hyperliquid, OKX, Aster, and 7 LLM models. Deploy 24/7 automated strategies with natural language.'}
             </p>
           </div>
 
@@ -129,8 +125,8 @@ export function LoginPage() {
                 language === 'zh'
                   ? 'Exchanges'
                   : language === 'id'
-                  ? 'Bursa'
-                  : 'Exchanges'
+                    ? 'Bursa'
+                    : 'Exchanges'
               }
             />
             <Stat
@@ -139,8 +135,8 @@ export function LoginPage() {
                 language === 'zh'
                   ? 'AI Models'
                   : language === 'id'
-                  ? 'Model AI'
-                  : 'AI Models'
+                    ? 'Model AI'
+                    : 'AI Models'
               }
             />
             <Stat
@@ -149,8 +145,8 @@ export function LoginPage() {
                 language === 'zh'
                   ? 'Always On'
                   : language === 'id'
-                  ? 'Sepanjang Waktu'
-                  : 'Always On'
+                    ? 'Sepanjang Waktu'
+                    : 'Always On'
               }
             />
           </div>
@@ -161,10 +157,7 @@ export function LoginPage() {
           <div className="w-full max-w-sm">
             {/* Mobile brand */}
             <div className="lg:hidden flex flex-col items-center gap-3 mb-10">
-              <img src="/icons/nofx.svg" alt="NOFX" className="w-12 h-12" />
-              <div className="font-mono font-bold text-lg tracking-tight text-nofx-text">
-                NOFX<span className="text-nofx-gold">.</span>
-              </div>
+              <BrandLogo />
             </div>
 
             {/* Form header */}
@@ -176,8 +169,8 @@ export function LoginPage() {
                 {language === 'zh'
                   ? 'Continue with your email'
                   : language === 'id'
-                  ? 'Lanjutkan dengan email Anda'
-                  : 'Continue with your email'}
+                    ? 'Lanjutkan dengan email Anda'
+                    : 'Continue with your email'}
               </p>
             </div>
 
@@ -192,7 +185,7 @@ export function LoginPage() {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full bg-nofx-bg-lighter border border-[rgba(26,24,19,0.14)] rounded-lg px-4 py-[11px] text-[14px] text-nofx-text placeholder-nofx-text-muted focus:outline-hidden focus:border-nofx-gold/50 focus:bg-nofx-bg-lighter focus:ring-2 focus:ring-nofx-gold/20 transition-all"
+                  className="w-full bg-nofx-bg-lighter border border-[rgba(25,36,52,0.14)] rounded-lg px-4 py-[11px] text-[14px] text-nofx-text placeholder-nofx-text-muted focus:outline-hidden focus:border-nofx-gold/50 focus:bg-nofx-bg-lighter focus:ring-2 focus:ring-nofx-gold/20 transition-all"
                   placeholder="you@example.com"
                   required
                   autoFocus
@@ -219,7 +212,7 @@ export function LoginPage() {
                     type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full bg-nofx-bg-lighter border border-[rgba(26,24,19,0.14)] rounded-lg px-4 py-[11px] pr-11 text-[14px] text-nofx-text placeholder-nofx-text-muted focus:outline-hidden focus:border-nofx-gold/50 focus:bg-nofx-bg-lighter focus:ring-2 focus:ring-nofx-gold/20 transition-all"
+                    className="w-full bg-nofx-bg-lighter border border-[rgba(25,36,52,0.14)] rounded-lg px-4 py-[11px] pr-11 text-[14px] text-nofx-text placeholder-nofx-text-muted focus:outline-hidden focus:border-nofx-gold/50 focus:bg-nofx-bg-lighter focus:ring-2 focus:ring-nofx-gold/20 transition-all"
                     placeholder="••••••••"
                     required
                     autoComplete="current-password"
@@ -228,7 +221,9 @@ export function LoginPage() {
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-nofx-text-muted hover:text-nofx-text transition-colors"
-                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    aria-label={
+                      showPassword ? 'Hide password' : 'Show password'
+                    }
                   >
                     {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
@@ -267,8 +262,8 @@ export function LoginPage() {
             </form>
 
             {/* Footer */}
-            <div className="mt-8 pt-5 border-t border-[rgba(26,24,19,0.14)] flex items-center justify-between text-[11px]">
-              <span className="font-mono text-nofx-text-muted">v1.0</span>
+            <div className="mt-8 pt-5 border-t border-[rgba(25,36,52,0.14)] flex items-center justify-between text-[11px]">
+              <span className="text-nofx-text-muted">Local workspace</span>
               <button
                 type="button"
                 onClick={handleResetAccount}
@@ -287,7 +282,7 @@ export function LoginPage() {
 function Stat({ value, label }: { value: string; label: string }) {
   return (
     <div>
-      <div className="font-mono text-2xl xl:text-3xl font-bold text-nofx-text">
+      <div className="font-sans text-2xl xl:text-3xl font-bold text-nofx-text">
         {value}
       </div>
       <div className="mt-1 text-[10.5px] uppercase tracking-[0.14em] text-nofx-text-muted">

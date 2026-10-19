@@ -29,12 +29,20 @@ export function PlanFunding({
   const available = Number(plan.constraints.available_margin)
   if (compact)
     return (
-      <p className="frontier-funding-compact">
-        <b>{leverage}x</b> · Position {money(notional)} {quote}
+      <div className="frontier-funding-compact">
+        <span>
+          Position value <b>{leverage}x</b>
+        </span>
+        <strong>
+          {money(notional)} <small>{quote}</small>
+        </strong>
         <small>
           Est. margin {money(margin)} {quote}
         </small>
-      </p>
+        {plan.constraints.planning_only && (
+          <small>Equity preview · refresh before trading</small>
+        )}
+      </div>
     )
   return (
     <section className="frontier-funding" aria-label="Plan funding">
@@ -58,7 +66,13 @@ export function PlanFunding({
           </strong>
         </div>
       </div>
-      {Number.isFinite(available) && available > 0 ? (
+      {plan.constraints.planning_only ? (
+        <p>
+          Equity preview only: no free margin was available. Amounts use account
+          equity as a reference, not available funds. Refresh and review with
+          available margin before trading.
+        </p>
+      ) : Number.isFinite(available) && available > 0 ? (
         <p>
           Available margin at sizing: {money(available)} {quote} · This plan
           uses {money((margin / available) * 100)}% before costs. Fees and
@@ -72,8 +86,8 @@ export function PlanFunding({
       )}
       {plan.sizing_limit === 'liquidity' && (
         <p className="stop-text">
-          Size reduced by order-book liquidity: participation is capped at 10%
-          of the visible top level.
+          This saved plan used the previous top-of-book size cap. New plans use
+          available margin × leverage, with execution costs reserved.
         </p>
       )}
       {plan.sizing_limit === 'risk' && (

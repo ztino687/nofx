@@ -23,6 +23,8 @@ interface ConfigStatusGridProps {
   configuredExchanges: Exchange[]
   exchangeAccountStates?: Record<string, ExchangeAccountState>
   isExchangeAccountStatesLoading?: boolean
+  accountStateError?: string
+  onCheckAccounts?: () => void
   visibleExchangeAddresses: Set<string>
   copiedId: string | null
   language: Language
@@ -47,15 +49,24 @@ const displayFunds = (value: string) => {
   })
 }
 const accountStatus = (state?: ExchangeAccountState) => {
-  if (!state) return 'Not checked'
+  if (!state) return 'Verification needed'
   const labels: Record<string, string> = {
-    ok: 'Balance checked',
+    ok: 'Connected',
     disabled: 'Disabled',
     missing_credentials: 'Finish setup',
     invalid_credentials: 'Check credentials',
     permission_denied: 'Check permissions',
   }
   return labels[state.status] || 'Connection unavailable'
+}
+const accountBalance = (state: ExchangeAccountState) => {
+  const asset = state.asset || ''
+  const balance = state.display_balance || String(state.total_equity ?? '')
+  const numeric =
+    asset && balance.endsWith(' ' + asset)
+      ? balance.slice(0, -asset.length - 1)
+      : balance
+  return `${displayFunds(numeric)}${asset ? ' ' + asset : ''}`
 }
 const usage = (value: UsageInfo) =>
   value.runningCount > 0
@@ -69,6 +80,8 @@ export function ConfigStatusGrid({
   configuredExchanges,
   exchangeAccountStates,
   isExchangeAccountStatesLoading,
+  accountStateError,
+  onCheckAccounts,
   visibleExchangeAddresses,
   copiedId,
   getModelUsageInfo,
@@ -92,7 +105,11 @@ export function ConfigStatusGrid({
             <h2 id="config-models-title">AI connections</h2>
             <p>The intelligence behind your trade plans.</p>
           </div>
-          <button className="config-add" onClick={onAddModel}>
+          <button
+            className="config-add"
+            onClick={onAddModel}
+            disabled={loading}
+          >
             <Plus size={14} /> Add AI
           </button>
         </header>
@@ -149,7 +166,9 @@ export function ConfigStatusGrid({
                 <div className="config-connection-foot">
                   <span>{usage(getModelUsageInfo(model.id))}</span>
                   <button onClick={() => onModelClick(model.id)}>
-                    Manage connection
+                    {model.provider === 'claw402'
+                      ? 'Manage wallet & backup'
+                      : 'Manage connection'}
                   </button>
                 </div>
               </article>
@@ -182,11 +201,20 @@ export function ConfigStatusGrid({
             <h2 id="config-accounts-title">Trading accounts</h2>
             <p>Choose where your approved orders are placed.</p>
           </div>
-          <button className="config-add" onClick={onAddExchange}>
+          <button
+            className="config-add"
+            onClick={onAddExchange}
+            disabled={loading}
+          >
             <Plus size={14} /> Add account
           </button>
         </header>
         <div className="config-card-body">
+          {accountStateError && (
+            <p role="alert" className="config-load-error">
+              {accountStateError}
+            </p>
+          )}
           {loading ? (
             <p role="status" className="config-loading">
               Loading trading accounts…
@@ -227,18 +255,41 @@ export function ConfigStatusGrid({
                     >
                       {isExchangeAccountStatesLoading && !state
                         ? 'Checking…'
-                        : accountStatus(state)}
+                        : accountStateError
+                          ? 'Verification unavailable'
+                          : accountStatus(state)}
                     </span>
                     <ArrowUpRight size={14} />
                   </button>
                   <div className="config-account-balance">
-                    <span>Account balance</span>
+                    <span>
+                      {exchange.exchange_type === 'binance'
+                        ? 'USDT Futures balance'
+                        : 'Account balance'}
+                    </span>
                     <strong>
                       {state?.status === 'ok' && state.display_balance
-                        ? `${displayFunds(state.display_balance)}${state.asset ? ' ' + state.asset : ''}`
-                        : 'Not available'}
+                        ? accountBalance(state)
+                        : isExchangeAccountStatesLoading
+                          ? 'Checking…'
+                          : 'Not verified'}
                     </strong>
                   </div>
+                  {state?.status === 'ok' &&
+                    state.available_balance !== undefined && (
+                      <div className="config-account-available">
+                        <span>Available to trade</span>
+                        <strong>
+                          {displayFunds(String(state.available_balance))}{' '}
+                          {state.asset}
+                        </strong>
+                      </div>
+                    )}
+                  {state?.error_message && (
+                    <p className="config-account-error">
+                      {state.error_message}
+                    </p>
+                  )}
                   {address && (
                     <div className="config-address">
                       <code>
@@ -265,7 +316,19 @@ export function ConfigStatusGrid({
                     </div>
                   )}
                   <div className="config-connection-foot">
-                    <span>{usage(getExchangeUsageInfo(exchange.id))}</span>
+                    <span>
+                      {getExchangeUsageInfo(exchange.id).totalCount > 0
+                        ? usage(getExchangeUsageInfo(exchange.id))
+                        : 'Autopilot optional · not required for Frontier'}
+                    </span>
+                    <button
+                      disabled={isExchangeAccountStatesLoading}
+                      onClick={onCheckAccounts}
+                    >
+                      {isExchangeAccountStatesLoading
+                        ? 'Checking…'
+                        : 'Verify connection'}
+                    </button>
                     <button onClick={() => onExchangeClick(exchange.id)}>
                       Manage account
                     </button>

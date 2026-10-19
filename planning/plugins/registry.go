@@ -167,7 +167,7 @@ func (r *Registry) SetEnabled(id string, on bool) error {
 	return nil
 }
 func (r *Registry) Read(ctx context.Context, id string, q Request) (Result, error) {
-	if !instrument.ValidSymbol(q.Symbol) || (q.Venue != "binance" && q.Venue != "okx" && q.Venue != "hyperliquid") {
+	if !instrument.ValidSymbol(q.Symbol) || (q.Venue != "binance" && q.Venue != "okx" && q.Venue != "bitget" && q.Venue != "hyperliquid") {
 		return Result{}, errors.New("invalid plugin workspace")
 	}
 	r.mu.RLock()

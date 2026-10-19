@@ -22,6 +22,8 @@ func (c *Client) SnapshotKind(ctx context.Context, venue, symbol, kind string) (
 		switch venue {
 		case "binance":
 			return c.binancePerpetual(ctx, symbol)
+		case "bitget":
+			return c.bitgetPerpetual(ctx, symbol)
 		case "okx":
 			return c.okxPerpetual(ctx, symbol)
 		case "hyperliquid":
@@ -78,7 +80,7 @@ func (c *Client) binancePerpetual(ctx context.Context, symbol string) (core.Snap
 		Bids, Asks [][]string
 		T, E       int64
 	}
-	if err := c.request(ctx, "GET", c.BinanceFutures+"/fapi/v1/depth?symbol="+url.QueryEscape(symbol)+"&limit=5", nil, &b); err != nil {
+	if err := c.request(ctx, "GET", c.BinanceFutures+"/fapi/v1/depth?symbol="+url.QueryEscape(symbol)+"&limit=100", nil, &b); err != nil {
 		return s, err
 	}
 	if len(b.Bids) == 0 || len(b.Asks) == 0 || len(b.Bids[0]) < 2 || len(b.Asks[0]) < 2 {
@@ -88,6 +90,17 @@ func (c *Client) binancePerpetual(ctx context.Context, symbol string) (core.Snap
 	s.BidSize = core.Decimal(b.Bids[0][1])
 	s.Ask = core.Decimal(b.Asks[0][0])
 	s.AskSize = core.Decimal(b.Asks[0][1])
+	for _, side := range []struct {
+		raw [][]string
+		dst *[]core.BookLevel
+	}{{b.Bids, &s.Bids}, {b.Asks, &s.Asks}} {
+		for _, level := range side.raw {
+			if len(level) < 2 {
+				return s, errors.New("invalid Binance perpetual book level")
+			}
+			*side.dst = append(*side.dst, core.BookLevel{Price: core.Decimal(level[0]), Quantity: core.Decimal(level[1])})
+		}
+	}
 	if b.T == 0 {
 		b.T = b.E
 	}
@@ -159,7 +172,7 @@ func (c *Client) okxPerpetual(ctx context.Context, symbol string) (core.Snapshot
 			Ts         string
 		}
 	}
-	if err = c.request(ctx, "GET", c.OKX+"/api/v5/market/books?instId="+url.QueryEscape(symbol)+"&sz=5", nil, &book); err != nil {
+	if err = c.request(ctx, "GET", c.OKX+"/api/v5/market/books?instId="+url.QueryEscape(symbol)+"&sz=100", nil, &book); err != nil {
 		return s, err
 	}
 	if book.Code != "0" || len(book.Data) != 1 || len(book.Data[0].Bids) == 0 || len(book.Data[0].Asks) == 0 || len(book.Data[0].Bids[0]) < 2 || len(book.Data[0].Asks[0]) < 2 {
@@ -173,6 +186,21 @@ func (c *Client) okxPerpetual(ctx context.Context, symbol string) (core.Snapshot
 	}
 	if s.AskSize, err = productDecimal(b.Asks[0][1], r.CtVal); err != nil {
 		return s, err
+	}
+	for _, side := range []struct {
+		raw [][]string
+		dst *[]core.BookLevel
+	}{{b.Bids, &s.Bids}, {b.Asks, &s.Asks}} {
+		for _, level := range side.raw {
+			if len(level) < 2 {
+				return s, errors.New("invalid OKX book level")
+			}
+			qty, e := productDecimal(level[1], r.CtVal)
+			if e != nil {
+				return s, e
+			}
+			*side.dst = append(*side.dst, core.BookLevel{Price: core.Decimal(level[0]), Quantity: qty})
+		}
 	}
 	var ms int64
 	if _, err = fmt.Sscan(b.Ts, &ms); err != nil || ms <= 0 {

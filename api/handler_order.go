@@ -159,7 +159,7 @@ func (s *Server) handleAccount(c *gin.Context) {
 
 // handlePositions Position list
 func (s *Server) handlePositions(c *gin.Context) {
-	trader, err := s.accountReadClient(c.GetString("user_id"), c.Query("trader_id"))
+	trader, err := s.accountReadClient(c.GetString("user_id"), c.Query("trader_id"), c.Query("exchange_id"))
 	if err != nil {
 		SafeBadRequest(c, err.Error())
 		return
@@ -390,7 +390,7 @@ func (s *Server) handleOrderFills(c *gin.Context) {
 
 // handleOpenOrders Get open orders (pending SL/TP) from exchange
 func (s *Server) handleOpenOrders(c *gin.Context) {
-	trader, err := s.accountReadClient(c.GetString("user_id"), c.Query("trader_id"))
+	trader, err := s.accountReadClient(c.GetString("user_id"), c.Query("trader_id"), c.Query("exchange_id"))
 	if err != nil {
 		SafeBadRequest(c, err.Error())
 		return

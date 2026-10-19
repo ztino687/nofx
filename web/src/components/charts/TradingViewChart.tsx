@@ -131,7 +131,7 @@ function TradingViewChartComponent({
       locale: language === 'zh' ? 'zh_CN' : 'en',
       enable_publishing: false,
       backgroundColor: 'rgba(241, 236, 226, 1)',
-      gridColor: 'rgba(26, 24, 19, 0.08)',
+      gridColor: 'rgba(25,36,52, 0.08)',
       hide_top_toolbar: !showToolbar,
       hide_legend: false,
       save_image: false,
@@ -169,19 +169,19 @@ function TradingViewChartComponent({
           ? 'fixed inset-0 z-50 rounded-none flex flex-col'
           : ''
         }`}
-      style={isFullscreen ? { background: '#F1ECE2' } : undefined}
+      style={isFullscreen ? { background: '#f6f8fc' } : undefined}
     >
       {/* Header */}
       <div
         className="flex flex-wrap items-center gap-2 p-3 sm:p-4"
-        style={{ borderBottom: embedded ? 'none' : '1px solid rgba(26, 24, 19, 0.14)' }}
+        style={{ borderBottom: embedded ? 'none' : '1px solid rgba(25,36,52, 0.14)' }}
       >
         {!embedded && (
           <div className="flex items-center gap-2">
-            <TrendingUp className="w-5 h-5" style={{ color: '#E0483B' }} />
+            <TrendingUp className="w-5 h-5" style={{ color: '#295be8' }} />
             <h3
               className="text-base sm:text-lg font-bold"
-              style={{ color: '#1A1813' }}
+              style={{ color: '#192434' }}
             >
               {t('marketChart', language)}
             </h3>
@@ -199,21 +199,21 @@ function TradingViewChartComponent({
               }}
               className="flex items-center gap-1 px-3 py-1.5 rounded-sm text-sm font-medium transition-all"
               style={{
-                background: '#F7F4EC',
-                border: '1px solid rgba(26, 24, 19, 0.14)',
-                color: '#1A1813',
+                background: '#ffffff',
+                border: '1px solid rgba(25,36,52, 0.14)',
+                color: '#192434',
               }}
             >
               {EXCHANGES.find((e) => e.id === exchange)?.name || exchange}
-              <ChevronDown className="w-4 h-4" style={{ color: '#8A8478' }} />
+              <ChevronDown className="w-4 h-4" style={{ color: '#707e92' }} />
             </button>
 
             {showExchangeDropdown && (
               <div
                 className="absolute top-full left-0 mt-1 py-1 rounded-lg shadow-xl z-20 min-w-[120px]"
                 style={{
-                  background: '#F7F4EC',
-                  border: '1px solid rgba(26, 24, 19, 0.14)',
+                  background: '#ffffff',
+                  border: '1px solid rgba(25,36,52, 0.14)',
                 }}
               >
                 {EXCHANGES.map((ex) => (
@@ -225,10 +225,10 @@ function TradingViewChartComponent({
                     }}
                     className="w-full px-4 py-2 text-left text-sm transition-all hover:bg-opacity-50"
                     style={{
-                      color: exchange === ex.id ? '#E0483B' : '#1A1813',
+                      color: exchange === ex.id ? '#295be8' : '#192434',
                       background:
                         exchange === ex.id
-                          ? 'rgba(224, 72, 59, 0.1)'
+                          ? 'rgba(41,91,232, 0.1)'
                           : 'transparent',
                     }}
                   >
@@ -248,9 +248,9 @@ function TradingViewChartComponent({
               }}
               className="flex items-center gap-1 px-3 py-1.5 rounded-sm text-sm font-bold transition-all"
               style={{
-                background: 'rgba(224, 72, 59, 0.1)',
-                border: '1px solid rgba(224, 72, 59, 0.3)',
-                color: '#E0483B',
+                background: 'rgba(41,91,232, 0.1)',
+                border: '1px solid rgba(41,91,232, 0.3)',
+                color: '#295be8',
               }}
             >
               {symbol}
@@ -261,12 +261,12 @@ function TradingViewChartComponent({
               <div
                 className="absolute top-full left-0 mt-1 py-2 rounded-lg shadow-xl z-20 w-[280px]"
                 style={{
-                  background: '#F7F4EC',
-                  border: '1px solid rgba(26, 24, 19, 0.14)',
+                  background: '#ffffff',
+                  border: '1px solid rgba(25,36,52, 0.14)',
                 }}
               >
                 {/* Custom Input */}
-                <div className="px-3 pb-2" style={{ borderBottom: '1px solid rgba(26, 24, 19, 0.14)' }}>
+                <div className="px-3 pb-2" style={{ borderBottom: '1px solid rgba(25,36,52, 0.14)' }}>
                   <div className="flex gap-2">
                     <input
                       type="text"
@@ -276,17 +276,17 @@ function TradingViewChartComponent({
                       placeholder={t('enterSymbol', language)}
                       className="flex-1 px-3 py-1.5 rounded-sm text-sm"
                       style={{
-                        background: '#F1ECE2',
-                        border: '1px solid rgba(26, 24, 19, 0.14)',
-                        color: '#1A1813',
+                        background: '#f6f8fc',
+                        border: '1px solid rgba(25,36,52, 0.14)',
+                        color: '#192434',
                       }}
                     />
                     <button
                       onClick={handleCustomSymbolSubmit}
                       className="px-3 py-1.5 rounded-sm text-sm font-medium"
                       style={{
-                        background: '#E0483B',
-                        color: '#F1ECE2',
+                        background: '#295be8',
+                        color: '#f6f8fc',
                       }}
                     >
                       OK
@@ -298,7 +298,7 @@ function TradingViewChartComponent({
                 <div className="px-2 pt-2">
                   <div
                     className="text-xs px-2 py-1 mb-1"
-                    style={{ color: '#8A8478' }}
+                    style={{ color: '#707e92' }}
                   >
                     {t('popularSymbols', language)}
                   </div>
@@ -312,11 +312,11 @@ function TradingViewChartComponent({
                         }}
                         className="px-2 py-1.5 rounded-sm text-xs font-medium transition-all"
                         style={{
-                          color: symbol === sym ? '#E0483B' : '#1A1813',
+                          color: symbol === sym ? '#295be8' : '#192434',
                           background:
                             symbol === sym
-                              ? 'rgba(224, 72, 59, 0.1)'
-                              : 'rgba(26, 24, 19, 0.04)',
+                              ? 'rgba(41,91,232, 0.1)'
+                              : 'rgba(25,36,52, 0.04)',
                         }}
                       >
                         {sym.replace('USDT', '')}
@@ -331,7 +331,7 @@ function TradingViewChartComponent({
           {/* Interval Selector */}
           <div
             className="flex gap-0.5 p-0.5 rounded-sm"
-            style={{ background: '#E8E2D5', border: '1px solid rgba(26, 24, 19, 0.14)' }}
+            style={{ background: '#edf1f7', border: '1px solid rgba(25,36,52, 0.14)' }}
           >
             {INTERVALS.map((int) => (
               <button
@@ -339,8 +339,8 @@ function TradingViewChartComponent({
                 onClick={() => setTimeInterval(int.id)}
                 className="px-2 py-1 rounded-sm text-xs font-medium transition-all"
                 style={{
-                  background: timeInterval === int.id ? '#E0483B' : 'transparent',
-                  color: timeInterval === int.id ? '#F1ECE2' : '#8A8478',
+                  background: timeInterval === int.id ? '#295be8' : 'transparent',
+                  color: timeInterval === int.id ? '#f6f8fc' : '#707e92',
                 }}
               >
                 {int.label}
@@ -353,9 +353,9 @@ function TradingViewChartComponent({
             onClick={() => setIsFullscreen(!isFullscreen)}
             className="p-1.5 rounded-sm transition-all"
             style={{
-              background: isFullscreen ? '#E0483B' : 'transparent',
-              color: isFullscreen ? '#F1ECE2' : '#8A8478',
-              border: '1px solid rgba(26, 24, 19, 0.14)',
+              background: isFullscreen ? '#295be8' : 'transparent',
+              color: isFullscreen ? '#f6f8fc' : '#707e92',
+              border: '1px solid rgba(25,36,52, 0.14)',
             }}
             title={isFullscreen ? t('exitFullscreen', language) : t('fullscreen', language)}
           >
@@ -375,7 +375,7 @@ function TradingViewChartComponent({
         ref={containerRef}
         style={{
           height: isFullscreen ? 'calc(100vh - 65px)' : height,
-          background: '#F1ECE2',
+          background: '#f6f8fc',
           overflow: 'hidden',
         }}
       />

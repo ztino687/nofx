@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"nofx/planning/core"
 	"nofx/planning/model"
 )
 
@@ -14,6 +15,39 @@ import (
 type Budget struct {
 	MaxRounds    int `json:"max_rounds"`
 	MaxToolCalls int `json:"max_tool_calls"`
+}
+
+// Full immutable plans are persisted and streamed to the UI. Model follow-up
+// needs prices, allocations and validation outcomes, not repeated book depth
+// and analysis windows in every saved plan.
+func modelToolResult(name string, result any) any {
+	if name != "propose_plans" {
+		return result
+	}
+	data, ok := result.(map[string]any)
+	if !ok {
+		return result
+	}
+	plans, ok := data["plans"].([]core.Plan)
+	if !ok {
+		return result
+	}
+	copyData := make(map[string]any, len(data))
+	for key, value := range data {
+		copyData[key] = value
+	}
+	summaries := make([]map[string]any, 0, len(plans))
+	for _, plan := range plans {
+		summaries = append(summaries, map[string]any{
+			"id": plan.ID, "idea": plan.Idea, "quantity": plan.Quantity,
+			"risk": plan.Risk, "reward": plan.Reward, "reward_risk": plan.RewardRisk,
+			"orders": plan.Orders, "quote_asset": plan.Snapshot.QuoteAsset,
+			"venue": plan.Snapshot.Venue, "symbol": plan.Snapshot.Symbol,
+			"expires": plan.Expires,
+		})
+	}
+	copyData["plans"] = summaries
+	return copyData
 }
 
 func (b Budget) normalized() (Budget, error) {

@@ -54,6 +54,8 @@ func (c *Client) PluginData(ctx context.Context, id string, q plugins.Request) (
 			out.SourceTime = time.UnixMilli(r.Time).UTC()
 			out.Metrics = []plugins.Metric{{Key: "open_interest", Label: "Open interest", Value: r.OI, Unit: strings.TrimSuffix(q.Symbol, "USDT")}}
 		}
+	case "bitget":
+		return c.bitgetPlugin(ctx, id, q, out)
 	case "okx":
 		if !strings.HasSuffix(q.Symbol, "-USDT-SWAP") {
 			return out, errors.New("This plugin supports OKX USDT perpetuals only")

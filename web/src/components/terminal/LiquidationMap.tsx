@@ -246,7 +246,7 @@ export function LiquidationMap({ symbol, marketType = 'hip3_perp', height = 460,
                   gridTemplateColumns: '52px 1fr 1fr',
                   alignItems: 'center',
                   height: rowH,
-                  background: hover === i ? 'rgba(26,24,19,0.05)' : 'transparent',
+                  background: hover === i ? 'rgba(25,36,52,0.05)' : 'transparent',
                   borderTop: isMark ? '1px solid var(--tm-red)' : 'none',
                 }}
               >

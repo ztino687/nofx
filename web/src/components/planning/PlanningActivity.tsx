@@ -22,6 +22,7 @@ const titles: Record<string, string> = {
   run_entry_plugin: 'Run entry calculator',
 }
 export const structureNames: Record<string, string> = {
+  market: 'Market',
   limit: 'Single limit',
   ladder: 'Weighted ladder',
   twap: 'TWAP',
@@ -32,6 +33,18 @@ export function recordActivity(
   now = Date.now()
 ): ActivityItem[] {
   const d = event.data
+  if (event.type === 'planning_sizing')
+    return [
+      ...items.filter((item) => item.id !== 'planning_sizing'),
+      {
+        id: 'planning_sizing',
+        label: 'Plan sizing · equity preview',
+        detail: String(d.message),
+        state: 'done' as const,
+        started: now,
+        ended: now,
+      },
+    ]
   if (event.type === 'model_transport')
     return [
       ...items,
@@ -134,10 +147,20 @@ export function recordActivity(
       detail: 'In progress',
       state: 'running',
     })
+  if (event.type === 'tool_progress')
+    return upsert(items, {
+      id: String(d.id),
+      label: titles[String(d.name)] || 'Run planning tool',
+      detail: `${d.interval} · ${d.count} / ${d.target_count} candles · ${d.scope}`,
+      state: 'running',
+    })
   if (event.type === 'tool_result') {
     const detail = [
       d.interval,
-      typeof d.count === 'number' ? `${d.count} candles` : undefined,
+      typeof d.count === 'number'
+        ? `${d.count}${typeof d.target_count === 'number' ? ` / ${d.target_count}` : ''} candles`
+        : undefined,
+      d.truncated ? 'Limited exchange history' : undefined,
       d.scope,
     ]
       .filter(Boolean)
@@ -227,7 +250,7 @@ export function PlanningActivity({
   items: ActivityItem[]
   busy: boolean
 }) {
-  const [now, setNow] = useState(Date.now())
+  const [now, setNow] = useState(Date.now)
   const [expanded, setExpanded] = useState(false)
   const box = useRef<HTMLDivElement>(null)
   const follow = useRef(true)

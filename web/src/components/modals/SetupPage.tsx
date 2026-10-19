@@ -141,7 +141,7 @@ export function SetupPage() {
               <div className="relative">
                 <div className="absolute -inset-4 bg-nofx-gold/20 rounded-full blur-2xl" />
                 <img
-                  src="/icons/nofx.svg"
+                  src="/icons/nofx-flow.svg"
                   alt="NOFX"
                   className="w-14 h-14 relative z-10"
                 />
@@ -154,7 +154,7 @@ export function SetupPage() {
           </div>
 
           {/* Card */}
-          <div className="bg-nofx-bg-lighter backdrop-blur-2xl border border-[rgba(26,24,19,0.14)] rounded-2xl p-8 shadow-lg">
+          <div className="bg-nofx-bg-lighter backdrop-blur-2xl border border-[rgba(25,36,52,0.14)] rounded-2xl p-8 shadow-lg">
             <form onSubmit={handleSubmit} className="space-y-5">
               {/* Email */}
               <div>
@@ -165,7 +165,7 @@ export function SetupPage() {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full bg-nofx-bg-deeper border border-[rgba(26,24,19,0.14)] rounded-xl px-4 py-3 text-sm text-nofx-text placeholder-nofx-text-muted focus:outline-hidden focus:border-nofx-gold/60 focus:ring-1 focus:ring-nofx-gold/30 transition-all"
+                  className="w-full bg-nofx-bg-deeper border border-[rgba(25,36,52,0.14)] rounded-xl px-4 py-3 text-sm text-nofx-text placeholder-nofx-text-muted focus:outline-hidden focus:border-nofx-gold/60 focus:ring-1 focus:ring-nofx-gold/30 transition-all"
                   placeholder={l.emailPlaceholder}
                   required
                   autoFocus
@@ -182,7 +182,7 @@ export function SetupPage() {
                     type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full bg-nofx-bg-deeper border border-[rgba(26,24,19,0.14)] rounded-xl px-4 py-3 pr-11 text-sm text-nofx-text placeholder-nofx-text-muted focus:outline-hidden focus:border-nofx-gold/60 focus:ring-1 focus:ring-nofx-gold/30 transition-all"
+                    className="w-full bg-nofx-bg-deeper border border-[rgba(25,36,52,0.14)] rounded-xl px-4 py-3 pr-11 text-sm text-nofx-text placeholder-nofx-text-muted focus:outline-hidden focus:border-nofx-gold/60 focus:ring-1 focus:ring-nofx-gold/30 transition-all"
                     placeholder={l.passwordPlaceholder}
                     required
                   />

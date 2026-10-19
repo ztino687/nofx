@@ -57,7 +57,7 @@ export default function BrandHero() {
                                 href={OFFICIAL_LINKS.github}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="border-2 border-[rgba(26,24,19,0.2)] text-nofx-text text-lg font-bold px-8 py-4 uppercase tracking-wider hover:bg-nofx-text/5 hover:border-nofx-text transition-all flex items-center gap-2"
+                                className="border-2 border-[rgba(25,36,52,0.2)] text-nofx-text text-lg font-bold px-8 py-4 uppercase tracking-wider hover:bg-nofx-text/5 hover:border-nofx-text transition-all flex items-center gap-2"
                             >
                                 <Github className="w-5 h-5" /> Source
                             </a>
@@ -86,7 +86,7 @@ export default function BrandHero() {
                     <div
                         className="absolute inset-0 opacity-[0.05]"
                         style={{
-                            backgroundImage: 'radial-gradient(circle at 1px 1px, rgba(26,24,19,0.4) 1px, transparent 0)',
+                            backgroundImage: 'radial-gradient(circle at 1px 1px, rgba(25,36,52,0.4) 1px, transparent 0)',
                             backgroundSize: '32px 32px'
                         }}
                     />

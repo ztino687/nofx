@@ -12,18 +12,27 @@ import {
 const SIGNATURE = `0x${'11'.repeat(64)}01`
 
 it('reconnects an empty wallet session before allowing authorization', async () => {
-  const request = vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce(['0xabc'])
-  await ensureWalletSigningAccount({request}, '0xABC')
-  expect(request).toHaveBeenNthCalledWith(2, {method:'eth_requestAccounts'})
+  const request = vi
+    .fn()
+    .mockResolvedValueOnce([])
+    .mockResolvedValueOnce(['0xabc'])
+  await ensureWalletSigningAccount({ request }, '0xABC')
+  expect(request).toHaveBeenNthCalledWith(2, { method: 'eth_requestAccounts' })
 })
 it('does not accept a saved address as a currently connected signing account', async () => {
   const request = vi.fn().mockResolvedValue([])
-  await expect(ensureWalletSigningAccount({request},'0xabc')).rejects.toThrow('No signing account')
-  expect(request).not.toHaveBeenCalledWith(expect.objectContaining({method:'eth_signTypedData_v4'}))
+  await expect(
+    ensureWalletSigningAccount({ request }, '0xabc')
+  ).rejects.toThrow('No signing account')
+  expect(request).not.toHaveBeenCalledWith(
+    expect.objectContaining({ method: 'eth_signTypedData_v4' })
+  )
 })
 it('rejects the wrong account without requesting a signature', async () => {
   const request = vi.fn().mockResolvedValue(['0xdef'])
-  await expect(ensureWalletSigningAccount({request},'0xabc')).rejects.toThrow('Wrong wallet account')
+  await expect(
+    ensureWalletSigningAccount({ request }, '0xabc')
+  ).rejects.toThrow('Wrong wallet account')
   expect(request).toHaveBeenCalledOnce()
 })
 
@@ -132,4 +141,32 @@ describe('Hyperliquid wallet signing chain', () => {
       expect(request).toHaveBeenCalledOnce()
     }
   )
+})
+
+it('keeps the explicitly selected wallet for funds actions when several extensions expose the same address', async () => {
+  const { rememberWalletProvider, getWalletProviderForAddress } =
+    await import('./hyperliquidWallet')
+  const selected = { request: vi.fn().mockResolvedValue(['0xselected']) }
+  const preferred = {
+    request: vi.fn().mockResolvedValue(['0xselected']),
+    isRabby: true,
+  }
+  window.ethereum = { ...preferred, providers: [preferred, selected] }
+  rememberWalletProvider('0xSelected', selected)
+  expect(await getWalletProviderForAddress('0xselected')).toBe(selected)
+  expect(preferred.request).not.toHaveBeenCalled()
+  delete window.ethereum
+})
+it('fails closed when multiple wallets are present and none exposes the intended account', async () => {
+  const { getWalletProviderForAddress } = await import('./hyperliquidWallet')
+  const a = { request: vi.fn().mockResolvedValue(['0xa']) },
+    b = { request: vi.fn().mockResolvedValue(['0xb']) }
+  window.ethereum = { ...a, providers: [a, b] }
+  await expect(getWalletProviderForAddress('0xnotconnected')).rejects.toThrow(
+    'Reconnect this account'
+  )
+  expect(a.request).not.toHaveBeenCalledWith(
+    expect.objectContaining({ method: 'eth_requestAccounts' })
+  )
+  delete window.ethereum
 })

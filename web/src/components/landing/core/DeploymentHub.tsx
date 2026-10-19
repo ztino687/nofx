@@ -13,7 +13,7 @@ export default function DeploymentHub() {
     }
 
     return (
-        <section className="py-24 bg-nofx-bg relative overflow-hidden border-t border-[rgba(26,24,19,0.14)]">
+        <section className="py-24 bg-nofx-bg relative overflow-hidden border-t border-[rgba(25,36,52,0.14)]">
             {/* Background Grids */}
             <div className="absolute inset-0 bg-[linear-gradient(to_right,#1a181310_1px,transparent_1px),linear-gradient(to_bottom,#1a181310_1px,transparent_1px)] bg-size-[24px_24px]"></div>
 
@@ -59,8 +59,8 @@ export default function DeploymentHub() {
                                 { icon: Command, label: "One-Line Install", desc: "Docker handles every dependency" },
                                 { icon: Shield, label: "Your Keys Stay Home", desc: "Runs on your machine, keys encrypted locally" }
                             ].map((item, i) => (
-                                <div key={i} className="flex gap-4 items-start p-4 rounded-sm bg-nofx-bg-lighter border border-[rgba(26,24,19,0.14)] hover:border-nofx-gold/30 transition-colors group">
-                                    <div className="p-2 rounded-sm bg-nofx-bg-deeper border border-[rgba(26,24,19,0.14)] text-nofx-gold group-hover:bg-nofx-gold/10 transition-colors">
+                                <div key={i} className="flex gap-4 items-start p-4 rounded-sm bg-nofx-bg-lighter border border-[rgba(25,36,52,0.14)] hover:border-nofx-gold/30 transition-colors group">
+                                    <div className="p-2 rounded-sm bg-nofx-bg-deeper border border-[rgba(25,36,52,0.14)] text-nofx-gold group-hover:bg-nofx-gold/10 transition-colors">
                                         <item.icon className="w-5 h-5" />
                                     </div>
                                     <div>
@@ -82,9 +82,9 @@ export default function DeploymentHub() {
                         {/* Glow effect */}
                         <div className="absolute -inset-1 bg-nofx-gold/10 rounded-xl blur-xl opacity-50"></div>
 
-                        <div className="relative rounded-xl overflow-hidden bg-nofx-bg-lighter border border-[rgba(26,24,19,0.14)] shadow-lg">
+                        <div className="relative rounded-xl overflow-hidden bg-nofx-bg-lighter border border-[rgba(25,36,52,0.14)] shadow-lg">
                             {/* Terminal Header */}
-                            <div className="flex items-center justify-between px-4 py-3 bg-nofx-bg-deeper border-b border-[rgba(26,24,19,0.14)]">
+                            <div className="flex items-center justify-between px-4 py-3 bg-nofx-bg-deeper border-b border-[rgba(25,36,52,0.14)]">
                                 <div className="flex gap-2">
                                     <div className="w-3 h-3 rounded-full bg-nofx-danger/80"></div>
                                     <div className="w-3 h-3 rounded-full bg-nofx-gold/80"></div>
@@ -100,7 +100,7 @@ export default function DeploymentHub() {
                             <div className="p-8 font-mono text-sm md:text-base bg-nofx-bg-lighter min-h-[200px] flex flex-col justify-center">
                                 <div className="mb-2 text-nofx-text-muted text-xs tracking-wide"># Initialize NoFX Core Protocol</div>
                                 <div
-                                    className="group relative flex items-start gap-3 p-4 rounded-lg bg-nofx-bg-deeper border border-[rgba(26,24,19,0.14)] hover:border-nofx-gold/50 cursor-pointer transition-all hover:bg-nofx-bg"
+                                    className="group relative flex items-start gap-3 p-4 rounded-lg bg-nofx-bg-deeper border border-[rgba(25,36,52,0.14)] hover:border-nofx-gold/50 cursor-pointer transition-all hover:bg-nofx-bg"
                                     onClick={handleCopy}
                                 >
                                     <span className="text-nofx-gold mt-1"><ChevronRight className="w-4 h-4" /></span>

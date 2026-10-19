@@ -136,7 +136,7 @@ export function PluginVisualization({ visual: v }: { visual: PluginVisual }) {
           aria-label="Cost basis and estimated liquidation value by price"
           viewBox="0 0 1000 270"
         >
-          <text x="10" y="15" fill="#6B6557">
+          <text x="10" y="15" fill="#637087">
             Value / USDC
           </text>
           {[0, 0.5, 1].map((t) => (
@@ -148,7 +148,7 @@ export function PluginVisualization({ visual: v }: { visual: PluginVisual }) {
                 y2={220 - t * 180}
                 stroke="#ddd7cb"
               />
-              <text x="2" y={224 - t * 180} fill="#6B6557" fontSize="11">
+              <text x="2" y={224 - t * 180} fill="#637087" fontSize="11">
                 {money(peak * t)}
               </text>
             </g>
@@ -176,7 +176,7 @@ export function PluginVisualization({ visual: v }: { visual: PluginVisual }) {
               x={70 + t * 860}
               y="244"
               textAnchor="middle"
-              fill="#6B6557"
+              fill="#637087"
               fontSize="11"
             >
               {num(min + t * (max - min))}
@@ -197,7 +197,7 @@ export function PluginVisualization({ visual: v }: { visual: PluginVisual }) {
               </text>
             </g>
           )}
-          <text x="930" y="266" textAnchor="end" fill="#6B6557" fontSize="11">
+          <text x="930" y="266" textAnchor="end" fill="#637087" fontSize="11">
             Price / USDC →
           </text>
         </svg>
@@ -269,7 +269,7 @@ export function PluginVisualization({ visual: v }: { visual: PluginVisual }) {
                   key={t}
                   x="2"
                   y={250 - t * 220}
-                  fill="#6B6557"
+                  fill="#637087"
                   fontSize="12"
                 >
                   {num(v.win_min + t * (v.win_max - v.win_min))}%
@@ -316,7 +316,7 @@ export function PluginVisualization({ visual: v }: { visual: PluginVisual }) {
                   x={60 + ((1 + t * (v.columns - 2)) * 550) / v.columns}
                   y="270"
                   textAnchor="middle"
-                  fill="#6B6557"
+                  fill="#637087"
                   fontSize="11"
                 >
                   {t === 0 ? '＜' : t === 1 ? '≥' : ''}
@@ -327,7 +327,7 @@ export function PluginVisualization({ visual: v }: { visual: PluginVisual }) {
                 x="610"
                 y="300"
                 textAnchor="end"
-                fill="#6B6557"
+                fill="#637087"
                 fontSize="12"
               >
                 Entry cost / reference price →

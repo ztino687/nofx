@@ -21,7 +21,9 @@ import (
 	"nofx/planning/plugins"
 	"nofx/store"
 	"nofx/trader/binance"
+	"nofx/trader/bitget"
 	"nofx/trader/hyperliquid"
+	"nofx/trader/okx"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -31,8 +33,9 @@ import (
 )
 
 type planningBrokerCache struct {
-	stamp  string
-	broker live.Broker
+	stamp   string
+	broker  live.Broker
+	created time.Time
 }
 
 type planningServices struct {
@@ -69,7 +72,7 @@ func (s *Server) planningService() (*planningServices, error) {
 			return
 		}
 		p.live = controller
-		if e = s.store.GormDB().AutoMigrate(&planning.Conversation{}, &planning.Preferences{}); e != nil {
+		if e = s.store.GormDB().AutoMigrate(&planning.Conversation{}, &planning.Preferences{}, &accountCloseIntent{}); e != nil {
 			s.planningError = e
 			return
 		}
@@ -103,20 +106,20 @@ func (s *Server) planningBroker(ctx context.Context, user, id string) (live.Brok
 			return nil, "", errors.New("Automatic trading is running on this account. Stop it before using an approved one-time plan.")
 		}
 	}
-	stampBytes, _ := json.Marshal([]any{ex.UpdatedAt, string(ex.APIKey), string(ex.SecretKey), ex.HyperliquidWalletAddr, ex.HyperliquidBuilderApproved, ex.Testnet, ex.HyperliquidUnifiedAcct})
+	stampBytes, _ := json.Marshal([]any{ex.UpdatedAt, string(ex.APIKey), string(ex.SecretKey), string(ex.Passphrase), ex.HyperliquidWalletAddr, ex.HyperliquidBuilderApproved, ex.Testnet, ex.HyperliquidUnifiedAcct})
 	stampHash := sha256.Sum256(stampBytes)
 	stamp := hex.EncodeToString(stampHash[:])
 	if s.planning != nil {
 		if cached, ok := s.planning.brokers.Load(user + "/" + id); ok {
 			v := cached.(planningBrokerCache)
-			if v.stamp == stamp {
+			if v.stamp == stamp && time.Since(v.created) < 5*time.Minute {
 				return v.broker, accountKey(ex), nil
 			}
 		}
 	}
 	cache := func(b live.Broker, key string) (live.Broker, string, error) {
 		if s.planning != nil {
-			s.planning.brokers.Store(user+"/"+id, planningBrokerCache{stamp: stamp, broker: b})
+			s.planning.brokers.Store(user+"/"+id, planningBrokerCache{stamp: stamp, broker: b, created: time.Now()})
 		}
 		return b, key, nil
 	}
@@ -126,7 +129,19 @@ func (s *Server) planningBroker(ctx context.Context, user, id string) (live.Brok
 		if ex.APIKey == "" || ex.SecretKey == "" {
 			return nil, "", errors.New("Connect a Binance futures account in NOFX settings first")
 		}
-		return cache(live.NOFXBroker{Trader: binance.NewExecutionTrader(string(ex.APIKey), string(ex.SecretKey), user)}, key)
+		t, err := binance.NewAccountTrader(ctx, string(ex.APIKey), string(ex.SecretKey), user)
+		if err != nil {
+			return nil, "", err
+		}
+		return cache(live.NOFXBroker{Trader: t}, key)
+	case "okx", "bitget":
+		if ex.APIKey == "" || ex.SecretKey == "" || ex.Passphrase == "" {
+			return nil, "", errors.New("Connect the exchange API key, secret and passphrase in NOFX first")
+		}
+		if ex.ExchangeType == "okx" {
+			return cache(live.NOFXBroker{Trader: okx.NewAccountTrader(string(ex.APIKey), string(ex.SecretKey), string(ex.Passphrase))}, key)
+		}
+		return cache(live.NOFXBroker{Trader: bitget.NewAccountTrader(string(ex.APIKey), string(ex.SecretKey), string(ex.Passphrase))}, key)
 	case "hyperliquid":
 		if ex.APIKey == "" || ex.HyperliquidWalletAddr == "" || !ex.HyperliquidBuilderApproved || ex.Testnet {
 			return nil, "", errors.New("Complete Hyperliquid mainnet wallet, Agent and Builder authorization in NOFX first")
@@ -137,7 +152,7 @@ func (s *Server) planningBroker(ctx context.Context, user, id string) (live.Brok
 		}
 		return cache(live.NOFXBroker{Trader: t}, key)
 	default:
-		return nil, "", errors.New("Live planning execution supports Binance USDT futures and Hyperliquid; no exchange-type fallback is allowed")
+		return nil, "", errors.New("This exchange is not supported by Frontier; no exchange fallback is allowed")
 	}
 }
 func (s *Server) planningAccount(user, id string) (*store.Exchange, error) {
@@ -148,8 +163,8 @@ func (s *Server) planningAccount(user, id string) (*store.Exchange, error) {
 	if ex.Testnet {
 		return nil, errors.New("This endpoint supports live mainnet accounts only")
 	}
-	if ex.ExchangeType != "binance" && ex.ExchangeType != "hyperliquid" {
-		return nil, errors.New("Planning execution supports Binance and Hyperliquid perpetual accounts")
+	if !frontierVenue(ex.ExchangeType) {
+		return nil, errors.New("Frontier supports Binance, Hyperliquid, OKX and Bitget perpetual accounts")
 	}
 	return ex, nil
 }
@@ -167,8 +182,8 @@ func (s *Server) planningWorkspace(user, id, venue string) (*store.Exchange, err
 		}
 		return ex, nil
 	}
-	if venue != "binance" && venue != "hyperliquid" {
-		return nil, errors.New("Select Binance futures or Hyperliquid")
+	if !frontierVenue(venue) {
+		return nil, errors.New("Select Binance, Hyperliquid, OKX or Bitget")
 	}
 	return &store.Exchange{UserID: user, ExchangeType: venue}, nil
 }
@@ -182,6 +197,7 @@ func (s *Server) registerPlanning(api, protected *gin.RouterGroup) {
 	protected.GET("/planning/setup-wallet", s.handlePlanningSetupWallet)
 	protected.POST("/planning/setup-wallet", s.handlePlanningSetupWallet)
 	protected.GET("/planning/account", s.handlePlanningReadAccount)
+	protected.POST("/planning/close-position", s.handlePlanningAccountClose)
 	protected.GET("/planning/state", s.handlePlanningState)
 	protected.POST("/planning/chat", s.handlePlanningChat)
 	protected.POST("/planning/compile", s.handlePlanningCompile)
@@ -296,18 +312,18 @@ func (s *Server) handlePlanningState(c *gin.Context) {
 		return
 	}
 	user := c.GetString("user_id")
-	records := (&planning.DraftStore{DB: s.store.GormDB(), UserID: user}).Records()
 	var bindings []planning.Draft
 	s.store.GormDB().Select("id", "exchange_id").Where("user_id = ?", user).Find(&bindings)
 	accounts := map[string]string{}
 	for _, d := range bindings {
 		accounts[d.ID] = d.ExchangeID
 	}
-	runs, e := p.live.List(user)
+	runs, e := p.live.ListContext(c.Request.Context(), user)
 	if e != nil {
 		planningError(c, e)
 		return
 	}
+	records := (&planning.DraftStore{DB: s.store.GormDB(), UserID: user}).Records()
 	c.JSON(200, gin.H{"records": records, "accounts": accounts, "runs": runs, "mode": "live", "now": time.Now().UTC()})
 }
 func (s *Server) handlePlanningCompile(c *gin.Context) {
@@ -343,7 +359,7 @@ func (s *Server) handlePlanningCompile(c *gin.Context) {
 		in.Idea.Execution = &core.Execution{Kind: "limit"}
 	}
 	if in.AutoSize {
-		in.Constraints, e = s.planningAccountLimits(c.Request.Context(), c.GetString("user_id"), ex.ID, in.Symbol, in.Constraints)
+		in.Constraints, e = s.planningAccountLimits(c.Request.Context(), c.GetString("user_id"), ex.ID, in.Symbol, in.Constraints, false)
 		if e != nil {
 			planningError(c, e)
 			return
@@ -386,7 +402,7 @@ func (s *Server) handlePlanningChat(c *gin.Context) {
 		return
 	}
 	if in.AutoSize {
-		in.Constraints, e = s.planningAccountLimits(c.Request.Context(), user, ex.ID, in.Symbol, in.Constraints)
+		in.Constraints, e = s.planningAccountLimits(c.Request.Context(), user, ex.ID, in.Symbol, in.Constraints, true)
 		if e != nil {
 			planningError(c, e)
 			return
@@ -499,9 +515,11 @@ func (s *Server) handlePlanningChat(c *gin.Context) {
 }
 func (s *Server) handlePlanningApprove(c *gin.Context) {
 	var in struct {
-		PlanID    string `json:"plan_id"`
-		Hash      string `json:"hash"`
-		Confirmed bool   `json:"confirmed"`
+		PlanID      string `json:"plan_id"`
+		Hash        string `json:"hash"`
+		Confirmed   bool   `json:"confirmed"`
+		ReplaceID   string `json:"replace_approval_id"`
+		ReplaceHash string `json:"replace_approval_hash"`
 	}
 	if c.ShouldBindJSON(&in) != nil || !in.Confirmed {
 		planningError(c, errors.New("explicit click confirmation is required"))
@@ -523,7 +541,7 @@ func (s *Server) handlePlanningApprove(c *gin.Context) {
 		return
 	}
 	defer unlock()
-	v, e := p.live.Approve(c.Request.Context(), c.GetString("user_id"), in.PlanID, in.Hash, "APPROVE LIVE")
+	v, e := p.live.ApproveReplacing(c.Request.Context(), c.GetString("user_id"), in.PlanID, in.Hash, "APPROVE LIVE", in.ReplaceID, in.ReplaceHash)
 	if e != nil {
 		planningError(c, e)
 		return
@@ -565,7 +583,7 @@ func (s *Server) handlePlanningStop(c *gin.Context) {
 		planningError(c, e)
 		return
 	}
-	v, e := p.live.Stop(c.GetString("user_id"), in.ID, in.Hash)
+	v, e := p.live.StopContext(c.Request.Context(), c.GetString("user_id"), in.ID, in.Hash)
 	if e != nil {
 		planningError(c, e)
 		return
@@ -607,7 +625,7 @@ func (s *Server) handlePlanningReconcile(c *gin.Context) {
 		planningError(c, e)
 		return
 	}
-	v, e := p.live.Reconcile(c.GetString("user_id"), in.ID)
+	v, e := p.live.ReconcileContext(c.Request.Context(), c.GetString("user_id"), in.ID)
 	if e != nil {
 		planningError(c, e)
 		return
@@ -770,7 +788,7 @@ func (s *Server) handlePlanningPluginData(c *gin.Context) {
 	c.JSON(200, result)
 }
 
-func (s *Server) planningAccountLimits(ctx context.Context, user, exchangeID, symbol string, constraints core.Constraints) (core.Constraints, error) {
+func (s *Server) planningAccountLimits(ctx context.Context, user, exchangeID, symbol string, constraints core.Constraints, preview bool) (core.Constraints, error) {
 	if exchangeID == "" {
 		return constraints, errors.New("connect a trading account for automatic sizing")
 	}
@@ -782,5 +800,12 @@ func (s *Server) planningAccountLimits(ctx context.Context, user, exchangeID, sy
 	if e != nil {
 		return constraints, e
 	}
+	if preview {
+		return live.DraftAccountLimits(a, constraints)
+	}
 	return live.AccountLimits(a, constraints)
+}
+
+func frontierVenue(venue string) bool {
+	return venue == "binance" || venue == "hyperliquid" || venue == "okx" || venue == "bitget"
 }

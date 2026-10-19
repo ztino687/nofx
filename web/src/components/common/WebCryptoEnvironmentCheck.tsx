@@ -73,10 +73,10 @@ export function WebCryptoEnvironmentCheck({
 
   const isCompact = variant === 'compact'
   const containerClass = isCompact
-    ? 'p-3 rounded-sm border border-[rgba(26,24,19,0.14)] bg-nofx-bg-lighter space-y-3'
-    : 'p-4 rounded-sm border border-[rgba(26,24,19,0.14)] bg-nofx-bg-lighter space-y-4'
+    ? 'p-3 rounded-sm border border-[rgba(25,36,52,0.14)] bg-nofx-bg-lighter space-y-3'
+    : 'p-4 rounded-sm border border-[rgba(25,36,52,0.14)] bg-nofx-bg-lighter space-y-4'
 
-  const descriptionColor = isCompact ? '#8A8478' : '#8A8478'
+  const descriptionColor = isCompact ? '#707e92' : '#707e92'
   const showInfo = status !== 'idle'
 
   const statusRendererMap: Record<WebCryptoCheckStatus, () => ReactNode> = {
@@ -135,7 +135,7 @@ export function WebCryptoEnvironmentCheck({
     checking: () => (
       <div
         className="flex items-center gap-2 text-xs"
-        style={{ color: '#1A1813' }}
+        style={{ color: '#192434' }}
       >
         <Loader2 className="w-4 h-4 animate-spin" />
         <span>{t('environmentCheck.checking', language)}</span>

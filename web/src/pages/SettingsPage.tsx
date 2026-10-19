@@ -335,14 +335,14 @@ export function SettingsPage() {
 
   return (
     <div
-      className="min-h-screen pt-20 pb-12 px-4"
-      style={{ background: '#F1ECE2' }}
+      className="nofx-settings min-h-screen pt-20 pb-12 px-4"
+      style={{ background: '#f6f8fc' }}
     >
       <div className="max-w-2xl mx-auto">
         <h1 className="text-xl font-bold text-nofx-text mb-6">Settings</h1>
 
         {/* Tabs */}
-        <div className="flex gap-1 mb-6 bg-nofx-bg-lighter border border-[rgba(26,24,19,0.14)] rounded-xl p-1">
+        <div className="flex gap-1 mb-6 bg-nofx-bg-lighter border border-[rgba(25,36,52,0.14)] rounded-xl p-1">
           {tabs.map((tab) => (
             <button
               key={tab.key}
@@ -361,7 +361,7 @@ export function SettingsPage() {
         </div>
 
         {/* Tab Content */}
-        <div className="bg-nofx-bg-lighter backdrop-blur-xl border border-[rgba(26,24,19,0.14)] rounded-2xl p-6">
+        <div className="bg-nofx-bg-lighter backdrop-blur-xl border border-[rgba(25,36,52,0.14)] rounded-2xl p-6">
           {/* Account Tab */}
           {activeTab === 'account' && (
             <div className="space-y-6">
@@ -372,7 +372,7 @@ export function SettingsPage() {
                 </p>
               </div>
 
-              <div className="border-t border-[rgba(26,24,19,0.14)] pt-6">
+              <div className="border-t border-[rgba(25,36,52,0.14)] pt-6">
                 <h3 className="text-sm font-semibold text-nofx-text mb-4">
                   Change Password
                 </h3>
@@ -386,7 +386,7 @@ export function SettingsPage() {
                         type={showPassword ? 'text' : 'password'}
                         value={newPassword}
                         onChange={(e) => setNewPassword(e.target.value)}
-                        className="w-full bg-nofx-bg-deeper border border-[rgba(26,24,19,0.14)] rounded-xl px-4 py-3 pr-11 text-sm text-nofx-text placeholder-nofx-text-muted focus:outline-hidden focus:border-nofx-gold/60 focus:ring-1 focus:ring-nofx-gold/30 transition-all"
+                        className="w-full bg-nofx-bg-deeper border border-[rgba(25,36,52,0.14)] rounded-xl px-4 py-3 pr-11 text-sm text-nofx-text placeholder-nofx-text-muted focus:outline-hidden focus:border-nofx-gold/60 focus:ring-1 focus:ring-nofx-gold/30 transition-all"
                         placeholder="At least 8 characters"
                         required
                       />
@@ -448,7 +448,7 @@ export function SettingsPage() {
                         setEditingModel(model.id)
                         setShowModelModal(true)
                       }}
-                      className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-nofx-bg-deeper hover:bg-nofx-bg-deeper border border-[rgba(26,24,19,0.14)] transition-colors group"
+                      className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-nofx-bg-deeper hover:bg-nofx-bg-deeper border border-[rgba(25,36,52,0.14)] transition-colors group"
                     >
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-lg bg-nofx-bg-deeper flex items-center justify-center">
@@ -534,7 +534,7 @@ export function SettingsPage() {
                           setEditingExchange(exchange.id)
                           setShowExchangeModal(true)
                         }}
-                        className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-nofx-bg-deeper hover:bg-nofx-bg-deeper border border-[rgba(26,24,19,0.14)] transition-colors group"
+                        className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-nofx-bg-deeper hover:bg-nofx-bg-deeper border border-[rgba(25,36,52,0.14)] transition-colors group"
                       >
                         <div className="flex items-center gap-3">
                           <div className="w-8 h-8 rounded-lg bg-nofx-bg-deeper flex items-center justify-center">

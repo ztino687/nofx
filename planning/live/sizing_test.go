@@ -1,10 +1,73 @@
 package live
 
 import (
+	"context"
+	"nofx/planning"
 	"nofx/planning/core"
 	"testing"
 	"time"
 )
+
+func TestZeroFreeMarginAllowsDraftsButNeverApproval(t *testing.T) {
+	for _, kind := range []string{"market", "limit", "ladder", "twap"} {
+		t.Run(kind, func(t *testing.T) {
+			controller, broker, market, base := setup(t, kind)
+			account := Account{Equity: "259.47", Available: "0", FeeBPS: "5", Position: "0.01624", OpenOrders: 2}
+			limits, err := DraftAccountLimits(account, core.Constraints{Leverage: 5, MinRewardRisk: "0", FeeBPS: "10", SlippageBPS: "10"})
+			if err != nil || !limits.PlanningOnly || limits.AvailableMargin != "0" || limits.Equity != account.Equity {
+				t.Fatalf("zero free margin blocked planning or invented funds: %+v %v", limits, err)
+			}
+			preview, err := core.Compile(market.book, limits, base.Idea, time.Now().UTC())
+			if err != nil {
+				t.Fatal(err)
+			}
+			store := planning.DraftStore{DB: controller.DB, UserID: "alice", ExchangeID: "exchange", Venue: "binance"}
+			if err = store.Add([]core.Plan{preview}); err != nil {
+				t.Fatal(err)
+			}
+			// Even after funding, this exact reference-size plan needs a fresh review.
+			if err = CheckAccountCapacity(preview, broker.account); err == nil {
+				t.Fatal("equity preview treated as a funded order")
+			}
+			if _, err = controller.Approve(context.Background(), "alice", preview.ID, preview.Hash, "APPROVE LIVE"); err == nil {
+				t.Fatal("equity preview acquired live approval")
+			}
+			var leases int64
+			controller.DB.Model(&Lease{}).Count(&leases)
+			if leases != 0 || len(broker.placed) != 0 {
+				t.Fatal("planning reserved the account or placed orders")
+			}
+			if _, err = AccountLimits(account, limits); err == nil {
+				t.Fatal("order review allowed without free margin")
+			}
+			account.Available, account.Position, account.OpenOrders = "200", "0", 0
+			funded, err := AccountLimits(account, limits)
+			if err != nil || funded.PlanningOnly || cmp(funded.AvailableMargin, "200") != 0 {
+				t.Fatalf("fresh review did not use actual free margin: %+v %v", funded, err)
+			}
+		})
+	}
+}
+
+func TestDraftSizingDoesNotMaskInvalidAccountData(t *testing.T) {
+	base := core.Constraints{Leverage: 5, MinRewardRisk: "0", FeeBPS: "10", SlippageBPS: "10"}
+	for _, a := range []Account{
+		{Equity: "259", Available: "", FeeBPS: "5"},
+		{Equity: "259", Available: "unknown", FeeBPS: "5"},
+		{Equity: "0", Available: "0", FeeBPS: "5"},
+		{Equity: "259", Available: "0", FeeBPS: ""},
+	} {
+		if _, err := DraftAccountLimits(a, base); err == nil {
+			t.Fatalf("invalid account became a preview: %+v", a)
+		}
+	}
+	for _, available := range []core.Decimal{"0", "-2", "30"} {
+		c, err := DraftAccountLimits(Account{Equity: "259", Available: available, FeeBPS: "5"}, base)
+		if err != nil || c.PlanningOnly != (available != "30") {
+			t.Fatalf("unexpected planning mode: %+v %v", c, err)
+		}
+	}
+}
 
 func TestAccountSizingUsesFreeMarginAndLeverage(t *testing.T) {
 	a := Account{Equity: "100", Available: "40", FeeBPS: "12", Position: "0"}
@@ -35,7 +98,7 @@ func TestAccountSizingUsesFreeMarginAndLeverage(t *testing.T) {
 }
 
 func TestAutoSizingAllocatesMarginAcrossEntryStructures(t *testing.T) {
-	for _, kind := range []string{"limit", "ladder", "twap"} {
+	for _, kind := range []string{"market", "limit", "ladder", "twap"} {
 		t.Run(kind, func(t *testing.T) {
 			_, b, m, base := setup(t, kind)
 			b.account.Equity, b.account.Available = "283.22", "283.22"
@@ -53,13 +116,53 @@ func TestAutoSizingAllocatesMarginAcrossEntryStructures(t *testing.T) {
 			if err := CheckAccountCapacity(p, b.account); err != nil {
 				t.Fatal(err)
 			}
-			m.book.AskSize = "0.01"
+			m.book.AskSize = "0.001"
+			m.book.Asks = []core.BookLevel{{Price: "100000", Quantity: "0.001"}, {Price: "100001", Quantity: "1"}}
 			limited, err := core.Compile(m.book, limits, base.Idea, time.Now().UTC())
-			if err != nil || limited.SizingLimit != "liquidity" || cmp(limited.Quantity, "0.001") > 0 {
-				t.Fatalf("liquidity cap missing or unexplained: %+v %v", limited, err)
+			if err != nil || limited.SizingLimit != "budget" || limited.Quantity != p.Quantity {
+				t.Fatalf("top quote silently changed margin allocation: %+v %v", limited, err)
+			}
+			if err = core.CheckBook(limited, m.book, time.Now().UTC()); err != nil {
+				t.Fatal("multi-level depth was not used", err)
+			}
+			if err = limited.Verify(time.Now().UTC()); err != nil {
+				t.Fatal(err)
 			}
 		})
 	}
+}
+
+func TestAccountMarginSizingReproducesReportedSmallPosition(t *testing.T) {
+	_, _, m, base := setup(t, "market")
+	now := time.Now().UTC()
+	m.book.Bid, m.book.Ask = "81401", "81402"
+	m.book.AskSize = "0.0379"
+	base.Idea.Entry, base.Idea.Stop, base.Idea.Target = "81402", "80700", "84100"
+	a := Account{Equity: "283", Available: "283", FeeBPS: "10"}
+	c, err := AccountLimits(a, core.Constraints{Leverage: 5, MinRewardRisk: "2", FeeBPS: "10", SlippageBPS: "10"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := c
+	legacy.SizingPolicy = ""
+	old, err := core.Compile(m.book, legacy, base.Idea, now)
+	if err != nil || old.SizingLimit != "liquidity" || cmp(old.Quantity, "0.00379") != 0 {
+		t.Fatalf("failed to reproduce reported cap: %+v %v", old, err)
+	}
+	if err = old.Verify(now); err != nil {
+		t.Fatal("saved plan changed", err)
+	}
+	p, err := core.Compile(m.book, c, base.Idea, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.SizingLimit != "budget" || cmp(p.Quantity, "0.0165") < 0 || cmp(p.Quantity, "0.018") > 0 {
+		t.Fatalf("283 USDC at 5x did not allocate the margin budget: %+v", p)
+	}
+	if err = CheckAccountCapacity(p, a); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("legacy quantity=%s; margin-sized quantity=%s; entry estimate=%s; max notional=%s", old.Quantity, p.Quantity, p.Orders[0].Price, c.MaxNotional)
 }
 
 func TestCapacityChecksActualOrdersInsteadOfUnusedBudget(t *testing.T) {

@@ -1,3 +1,4 @@
+import { frontierVenues, defaultMarket } from '../lib/frontierAccounts'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
@@ -40,7 +41,21 @@ import {
   FrontierSetup,
   type FeeWalletState,
 } from '../components/planning/FrontierSetup'
+import {
+  accountLabel,
+  preferredAccount as preferredTradingAccount,
+  rememberAccount,
+} from '../lib/frontierAccounts'
 import { nativeMarket } from '../lib/frontierAccount'
+import {
+  batchPlans,
+  comparablePlans,
+  readBatch,
+  saveBatch,
+  workspaceKey,
+  type PlanBatch,
+  type AccountObservation,
+} from '../lib/frontierWorkspace'
 import './TradingPlanningPage.css'
 const format = (n: string | number) =>
   Number(n).toLocaleString('en-US', { maximumFractionDigits: 8 })
@@ -72,7 +87,16 @@ interface ChatMessage {
   content: string
 }
 export function TradingPlanningPage() {
-  const [assistantView, setAssistantView] = useState<'chat' | 'plans'>('chat')
+  const [observation, setObservation] = useState<AccountObservation | null>(
+    null
+  )
+  const pendingIntent = useRef<{
+    venue: string
+    symbol: string
+    text?: string
+    compare?: boolean
+    plan?: Plan
+  } | null>(null)
   const [setupOpen, setSetupOpen] = useState<'ai' | 'exchange' | null>(null)
   const [walletState, setWalletState] = useState<FeeWalletState>('checking')
   const [configsLoaded, setConfigsLoaded] = useState(false)
@@ -104,6 +128,13 @@ export function TradingPlanningPage() {
     [orderNotice, setOrderNotice] = useState(''),
     [price, setPrice] = useState('—'),
     [interval, setInterval] = useState('1h')
+  const [tradeCheckError, setTradeCheckError] = useState<{
+    runID: string
+    message: string
+  } | null>(null)
+  const [reviewReplacement, setReviewReplacement] = useState<LiveRun | null>(
+    null
+  )
   const [trace, setTrace] = useState<ActivityItem[]>([]),
     [review, setReview] = useState<Plan | null>(null),
     [leverage, setLeverage] = useState(5),
@@ -149,14 +180,61 @@ export function TradingPlanningPage() {
             r.plan.snapshot.venue === venue
         )
         .sort(
-          (a, b) => Date.parse(b.plan.created) - Date.parse(a.plan.created)
+          (a, b) =>
+            Date.parse(b.plan.created) - Date.parse(a.plan.created) ||
+            ['market', 'limit', 'ladder', 'twap'].indexOf(
+              a.plan.idea.execution.kind
+            ) -
+              ['market', 'limit', 'ladder', 'twap'].indexOf(
+                b.plan.idea.execution.kind
+              )
         ),
     [data, exchangeID, symbol, venue]
   )
   const [checks, setChecks] = useState<PlanCheck[]>([])
   const [turnPlanIDs, setTurnPlanIDs] = useState<string[]>([])
+  const batchKey = workspaceKey(exchangeID, venue, symbol)
+  const [batch, setBatch] = useState<{ key: string; value: PlanBatch | null }>(
+    () => ({ key: batchKey, value: readBatch(batchKey) })
+  )
+  const currentBatch =
+    batch.key === batchKey ? batch.value : readBatch(batchKey)
+  function rememberBatch(value: PlanBatch, key = batchKey) {
+    saveBatch(key, value)
+    setBatch({ key, value })
+  }
+  function showSection(section: 'chart' | 'plans' | 'assistant' | 'account') {
+    requestAnimationFrame(() =>
+      document
+        .getElementById('frontier-' + section)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    )
+  }
+  function requestReview(plan: Plan) {
+    if (!exchangeID) {
+      pendingIntent.current = { venue, symbol, plan }
+      setSetupOpen('exchange')
+    } else void reviewWithAccount(plan)
+  }
+  const openSetup = useCallback((step: 'ai' | 'exchange' | null) => {
+    if (!step) pendingIntent.current = null
+    setSetupOpen(step)
+  }, [])
+  function completeSetup(step: 'ai' | 'exchange') {
+    const intent = pendingIntent.current
+    pendingIntent.current = null
+    if (!intent) return
+    if (intent.venue !== venue || intent.symbol !== symbol) {
+      setOrderNotice(
+        'Connection saved. Choose a plan for the current market to continue.'
+      )
+      return
+    }
+    if (step === 'ai' && intent.text) void send(intent.text, intent.compare)
+    if (step === 'exchange' && intent.plan && exchangeID)
+      void reviewWithAccount(intent.plan)
+  }
   function resetTurn() {
-    setAssistantView('chat')
     setChecks([])
     setTurnPlanIDs([])
     setTrace([])
@@ -189,6 +267,7 @@ export function TradingPlanningPage() {
   )
   useEffect(() => {
     setOrderNotice('')
+    setTradeCheckError(null)
   }, [exchangeID])
   const reload = useCallback(async () => {
     const next = await planningAPI<PlanningState>('state')
@@ -213,14 +292,20 @@ export function TradingPlanningPage() {
           (a) =>
             a.enabled &&
             !a.testnet &&
-            ['binance', 'hyperliquid'].includes(a.exchange_type || '')
+            frontierVenues.includes(a.exchange_type || '')
         )
         const enabled = ai.filter((m) => m.enabled && m.has_api_key)
         setAccounts(supported)
         setModels(enabled)
         const preferred =
-          supported.find((a) => a.exchange_type === requestedVenue.current) ||
-          (!marketChosen.current && supported.length === 1
+          supported.find(
+            (a) =>
+              a.id ===
+              preferredTradingAccount(supported, requestedVenue.current)
+          ) ||
+          (!marketChosen.current &&
+          supported.length === 1 &&
+          supported[0].exchange_type !== requestedVenue.current
             ? supported[0]
             : undefined)
         setExchangeID(preferred?.id || '')
@@ -231,8 +316,7 @@ export function TradingPlanningPage() {
         ) {
           requestedVenue.current = preferred.exchange_type
           setVenue(preferred.exchange_type)
-          const native =
-            preferred.exchange_type === 'binance' ? 'BTCUSDT' : 'BTC'
+          const native = defaultMarket(preferred.exchange_type || '')
           setSymbol(native)
           setSymbolInput(native)
         }
@@ -289,7 +373,7 @@ export function TradingPlanningPage() {
       chart.current?.dispose()
       chart.current = null
     }
-  }, [exchangeID, venue, symbol])
+  }, [venue, symbol])
   useEffect(() => {
     if (!chart.current) return
     const list = compare
@@ -308,11 +392,13 @@ export function TradingPlanningPage() {
   }, [current, compare, data.records, symbol, venue, run?.state])
   useEffect(() => {
     const box = chatBox.current
-    if (box && chatFollow.current) box.scrollTop = box.scrollHeight
+    if (box && chatFollow.current)
+      box.scrollTop = messages.length || trace.length ? box.scrollHeight : 0
   }, [messages, trace])
   async function refreshSetup(
     preferredModel?: string,
-    preferredVenue?: string
+    preferredVenue?: string,
+    preferredAccount?: string
   ) {
     const [ex, ai] = await Promise.all([
       api.getExchangeConfigs(),
@@ -323,7 +409,7 @@ export function TradingPlanningPage() {
       (a) =>
         a.enabled &&
         !a.testnet &&
-        ['binance', 'hyperliquid'].includes(a.exchange_type || '')
+        frontierVenues.includes(a.exchange_type || '')
     )
     const enabled = ai.filter((m) => m.enabled && m.has_api_key)
     setAccounts(supported)
@@ -337,11 +423,20 @@ export function TradingPlanningPage() {
     )
     const nextVenue = preferredVenue || venue
     const matching = supported.filter((a) => a.exchange_type === nextVenue)
-    const nextAccountID = matching.some((a) => a.id === exchangeID)
-      ? exchangeID
-      : matching[0]?.id || ''
+    const nextAccountID = matching.some((a) => a.id === preferredAccount)
+      ? preferredAccount!
+      : matching.some((a) => a.id === exchangeID)
+        ? exchangeID
+        : preferredTradingAccount(supported, nextVenue)
     setExchangeID(nextAccountID)
+    rememberAccount(nextVenue, nextAccountID)
     if (nextAccountID !== exchangeID) {
+      setReview(null)
+      setBuilder(false)
+      setObservation(null)
+      setLimits(defaultLimits)
+      setError('')
+      setOrderNotice('')
       setSelected('')
       setCompare([])
       resetTurn()
@@ -349,7 +444,7 @@ export function TradingPlanningPage() {
     if (preferredVenue && preferredVenue !== venue) {
       requestedVenue.current = preferredVenue
       setVenue(preferredVenue)
-      const native = preferredVenue === 'binance' ? 'BTCUSDT' : 'BTC'
+      const native = defaultMarket(preferredVenue)
       setSymbol(native)
       setSymbolInput(native)
       setSelected('')
@@ -369,33 +464,46 @@ export function TradingPlanningPage() {
     setMessages([])
     setTrace([])
     setError('')
+    setOrderNotice('')
     session.current = crypto.randomUUID()
   }
   async function choose(p: Plan) {
     setSelected(p.id)
     setCompare([])
     setError('')
-    await chart.current?.plot(p, data.records[p.id].state, [])
+    showSection('chart')
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    await chart.current?.plot(p, data.records[p.id]?.state || 'draft', [])
     await chart.current?.focusPlan()
   }
-  function changeAccount(id: string) {
+  function changeAccount(
+    id: string,
+    nextVenue = accounts.find((a) => a.id === id)?.exchange_type || venue
+  ) {
     marketChosen.current = true
     abort.current?.abort()
+    pendingIntent.current = null
     setExchangeID(id)
-    if (!id) setLimits(defaultLimits)
-    const a = accounts.find((v) => v.id === id)
-    const nextVenue = a?.exchange_type || venue
+    if (configsLoaded) rememberAccount(nextVenue, id)
+    setLimits(defaultLimits)
+    setObservation(null)
+    setReview(null)
+    setBuilder(false)
+    setError('')
+    setOrderNotice('')
     requestedVenue.current = nextVenue
     setVenue(nextVenue)
-    const native = nextVenue === 'binance' ? 'BTCUSDT' : 'BTC'
-    setSymbol(native)
-    setSymbolInput(native)
+    if (nextVenue !== venue) {
+      const native = defaultMarket(nextVenue)
+      setSymbol(native)
+      setSymbolInput(native)
+      setPrice('—')
+    }
     setSelected('')
     resetTurn()
     setCompare([])
     setMessages([])
     session.current = crypto.randomUUID()
-    setPrice('—')
   }
   function viewTrade(trade: LiveRun) {
     marketChosen.current = true
@@ -425,7 +533,7 @@ export function TradingPlanningPage() {
     })
     setBuilder(true)
   }
-  async function send(text = instruction) {
+  async function send(text = instruction, compareStructures = false) {
     if (busy || !text.trim()) return
     if (
       !modelID ||
@@ -433,6 +541,12 @@ export function TradingPlanningPage() {
         walletState !== 'ready')
     ) {
       setInstruction(text)
+      pendingIntent.current = {
+        venue,
+        symbol,
+        text,
+        compare: compareStructures,
+      }
       setSetupOpen('ai')
       return
     }
@@ -445,7 +559,8 @@ export function TradingPlanningPage() {
     }
     // A locked trade is immutable, but it must not lock the whole workspace.
     const separateDraft = Boolean(current && current.state !== 'draft')
-    const revisionID = current?.state === 'draft' ? selected : undefined
+    const revisionID =
+      !compareStructures && current?.state === 'draft' ? selected : undefined
     const historyMessages = separateDraft
       ? []
       : messages.filter((m) => m.role !== 'error').slice(-16)
@@ -457,8 +572,13 @@ export function TradingPlanningPage() {
     }
     setBusy(true)
     setPlanningBusy(true)
-    setAssistantView('chat')
+    const generation: PlanBatch = {
+      id: crypto.randomUUID(),
+      ids: [],
+      created: new Date().toISOString(),
+    }
     setError('')
+    setOrderNotice('')
     setInstruction('')
     resetTurn()
     chatFollow.current = true
@@ -470,6 +590,7 @@ export function TradingPlanningPage() {
     const controller = new AbortController()
     abort.current = controller
     let streamStarted = false
+    let preferredPlan: Plan | undefined
     try {
       await streamPlanning(
         {
@@ -483,9 +604,10 @@ export function TradingPlanningPage() {
           message: text,
           plan_id: revisionID,
           execution_kind: 'auto',
+          compare_structures: compareStructures,
           plugin_window: pluginWindow,
           session_id: session.current,
-          turn_id: crypto.randomUUID(),
+          turn_id: generation.id,
           history: historyMessages,
           constraints: { ...limits, leverage },
           auto_size: Boolean(exchangeID),
@@ -494,6 +616,8 @@ export function TradingPlanningPage() {
         (event) => {
           streamStarted = true
           setTrace((items) => recordActivity(items, event))
+          if (event.type === 'planning_sizing')
+            setOrderNotice(String(event.data.message))
           if (event.type === 'assistant')
             setMessages((m) => [
               ...m,
@@ -523,14 +647,34 @@ export function TradingPlanningPage() {
           if (event.type === 'plans') {
             if (Array.isArray(event.data.checks))
               mergeChecks(event.data.checks as PlanCheck[])
-            const plans = event.data.plans as Plan[]
+            const plans = (event.data.plans as Plan[])
+              ?.slice()
+              .sort(
+                (a, b) =>
+                  ['market', 'limit', 'ladder', 'twap'].indexOf(
+                    a.idea.execution.kind
+                  ) -
+                  ['market', 'limit', 'ladder', 'twap'].indexOf(
+                    b.idea.execution.kind
+                  )
+              )
             if (plans?.length) {
+              generation.ids = [
+                ...new Set([...generation.ids, ...plans.map((p) => p.id)]),
+              ]
+              rememberBatch({ ...generation }, batchKey)
               setLimits(plans[0].constraints)
               setTurnPlanIDs((ids) => [
                 ...new Set([...ids, ...plans.map((plan) => plan.id)]),
               ])
-              setSelected(plans[0].id)
-              setAssistantView('plans')
+              const rank = (p: Plan) =>
+                ['market', 'limit', 'ladder', 'twap'].indexOf(
+                  p.idea.execution.kind
+                )
+              if (!preferredPlan || rank(plans[0]) <= rank(preferredPlan))
+                preferredPlan = plans[0]
+              setSelected(preferredPlan.id)
+
               setCompare([])
             }
             reload().catch(() => {})
@@ -567,28 +711,72 @@ export function TradingPlanningPage() {
     }
   }
   async function reviewWithAccount(plan: Plan) {
-    if (blockingRun) {
-      setError('')
-      return
-    }
+    if (busy) return
     setBusy(true)
     setError('')
+    setOrderNotice('')
+    setTradeCheckError(null)
+    setReviewReplacement(null)
+    let checkingPreviousTrade = false
+    let replacement: LiveRun | null = null
     try {
+      const existingPosition =
+        observation?.accountID === exchangeID &&
+        Math.abs(clock - observation.checkedAt) < 30000
+          ? observation.positions.find(
+              (p) =>
+                nativeMarket(p.symbol, venue) ===
+                nativeMarket(blockingRun?.plan.snapshot.symbol || symbol, venue)
+            )
+          : undefined
+      if (blockingRun && existingPosition) {
+        showSection('account')
+        return
+      }
+      if (blockingRun?.state === 'approved') {
+        replacement = blockingRun
+      } else if (blockingRun) {
+        checkingPreviousTrade = true
+        const checked = await planningAPI<LiveRun>('check-status', {
+          id: blockingRun.id,
+        })
+        await reload()
+        if (checked.state === 'approved') {
+          replacement = checked
+        } else if (
+          !['completed', 'cancelled', 'expired'].includes(checked.state)
+        ) {
+          throw new Error(
+            'The previous trade is still active. Review Positions & orders below before placing another.'
+          )
+        }
+        checkingPreviousTrade = false
+      }
       const sized = await planningAPI<Plan>('compile', {
         exchange_id: exchangeID,
         venue,
         symbol,
         idea: plan.idea,
-        constraints: { ...plan.constraints, leverage },
+        constraints: {
+          ...plan.constraints,
+          leverage,
+          min_reward_risk: limits.min_reward_risk,
+        },
         auto_size: true,
       })
       await reload()
+      // A refreshed account size is a new review, never a replacement in an older comparison set.
       setSelected(sized.id)
       setCompare([])
       setLimits(sized.constraints)
+      setReviewReplacement(replacement)
       setReview(sized)
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      const message = e instanceof Error ? e.message : String(e)
+      if (checkingPreviousTrade && blockingRun) {
+        setTradeCheckError({ runID: blockingRun.id, message })
+        await reload().catch(() => {})
+      } else setError(message)
     } finally {
       setBusy(false)
     }
@@ -598,11 +786,18 @@ export function TradingPlanningPage() {
     const locked = review
     setBusy(true)
     setError('')
+    setOrderNotice('')
     try {
       const approved = await planningAPI<LiveRun>('approve', {
         plan_id: locked.id,
         hash: locked.hash,
         confirmed: true,
+        ...(reviewReplacement
+          ? {
+              replace_approval_id: reviewReplacement.id,
+              replace_approval_hash: reviewReplacement.approval_hash,
+            }
+          : {}),
       })
       setReview(null)
       await planningAPI('execute', {
@@ -622,16 +817,20 @@ export function TradingPlanningPage() {
     setBusy(true)
     setError('')
     setOrderNotice('')
+    setTradeCheckError(null)
     try {
       const checked = await planningAPI<LiveRun>('check-status', { id: r.id })
       await reload()
       setOrderNotice(
         checked.state === 'completed'
           ? 'Previous trade is closed. Your account is ready for a new order. Review a plan when you are ready.'
-          : 'Status checked. Review the previous trade and your current positions below.'
+          : ''
       )
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setTradeCheckError({
+        runID: r.id,
+        message: e instanceof Error ? e.message : String(e),
+      })
       await reload().catch(() => {})
     } finally {
       setBusy(false)
@@ -643,6 +842,7 @@ export function TradingPlanningPage() {
   ) {
     setBusy(true)
     setError('')
+    setOrderNotice('')
     try {
       await planningAPI(action, { id: r.id, hash: r.approval_hash })
       await reload()
@@ -655,6 +855,7 @@ export function TradingPlanningPage() {
   async function saveBuilder() {
     setBusy(true)
     setError('')
+    setReviewReplacement(blockingRun?.state === 'approved' ? blockingRun : null)
     try {
       const idea = { ...builderIdea, execution: { ...builderIdea.execution } }
       if (idea.execution.kind === 'ladder') {
@@ -694,11 +895,13 @@ export function TradingPlanningPage() {
     setCompare([])
     setTrace([])
     setError('')
+    setOrderNotice('')
   }
-  const readyRecords = records.filter(
-    (r) => r.state === 'draft' && !expired(r.plan, clock)
+  const deckPlans = batchPlans(records, currentBatch)
+  const comparisonPlans = comparablePlans(deckPlans, clock)
+  const archivedRecords = records.filter(
+    (r) => !deckPlans.some((p) => p.id === r.plan.id)
   )
-  const archivedRecords = records.filter((r) => !readyRecords.includes(r))
   const renderPlanCard = (r: PlanningState['records'][string]) => (
     <button
       key={r.plan.id}
@@ -712,11 +915,13 @@ export function TradingPlanningPage() {
           ? String.fromCharCode(65 + compare.indexOf(r.plan.id)) + ' · '
           : ''}
         {r.plan.idea.side === 'long' ? '↗ Long' : '↘ Short'} ·{' '}
-        {r.plan.idea.execution.kind === 'ladder'
-          ? 'Price ladder'
-          : r.plan.idea.execution.kind === 'twap'
-            ? 'TWAP'
-            : 'Single limit'}
+        {r.plan.idea.execution.kind === 'market'
+          ? 'Market'
+          : r.plan.idea.execution.kind === 'ladder'
+            ? 'Price ladder'
+            : r.plan.idea.execution.kind === 'twap'
+              ? 'TWAP'
+              : 'Single limit'}
       </span>
       <strong>{r.plan.idea.name}</strong>
       <span>Entry {format(r.plan.idea.entry)}</span>
@@ -753,7 +958,14 @@ export function TradingPlanningPage() {
             <b>3</b> Review & trade
           </span>
         </nav>
-        <a className="frontier-account-link" href="#frontier-account">
+        <a
+          className="frontier-account-link"
+          href="#frontier-account"
+          onClick={(event) => {
+            event.preventDefault()
+            showSection('account')
+          }}
+        >
           Positions & orders ↓
         </a>
         <Link to={ROUTES.settings}>Settings ↗</Link>
@@ -765,29 +977,17 @@ export function TradingPlanningPage() {
             aria-label="Market venue"
             value={venue}
             disabled={busy}
-            onChange={(e) => {
-              const next = e.target.value
-              marketChosen.current = true
-              requestedVenue.current = next
-              setVenue(next)
-              setLimits(defaultLimits)
-              setExchangeID(
-                accounts.find((a) => a.exchange_type === next)?.id || ''
+            onChange={(e) =>
+              changeAccount(
+                preferredTradingAccount(accounts, e.target.value),
+                e.target.value
               )
-              const native = next === 'binance' ? 'BTCUSDT' : 'BTC'
-              setSymbol(native)
-              setSymbolInput(native)
-              setSelected('')
-              resetTurn()
-              setCompare([])
-              setMessages([])
-              setError('')
-              setPrice('—')
-              session.current = crypto.randomUUID()
-            }}
+            }
           >
             <option value="binance">Binance · USDT perpetual</option>
             <option value="hyperliquid">Hyperliquid · perpetual</option>
+            <option value="okx">OKX · USDT perpetual</option>
+            <option value="bitget">Bitget · USDT perpetual</option>
           </select>
         </div>
         <div className="frontier-toolbar-field">
@@ -795,7 +995,13 @@ export function TradingPlanningPage() {
           <select
             aria-label="Trading account"
             value={exchangeID}
-            onChange={(e) => changeAccount(e.target.value)}
+            onChange={(e) => {
+              if (e.target.value === '__add_account__') {
+                setSetupOpen('exchange')
+                return
+              }
+              changeAccount(e.target.value)
+            }}
             disabled={busy}
           >
             <option value="">Explore without an account</option>
@@ -803,9 +1009,10 @@ export function TradingPlanningPage() {
               .filter((a) => a.exchange_type === venue)
               .map((a) => (
                 <option key={a.id} value={a.id}>
-                  {a.name} · {a.exchange_type}
+                  {accountLabel(a, accounts)} · {a.exchange_type}
                 </option>
               ))}
+            <option value="__add_account__">+ Add another account…</option>
           </select>
         </div>
         <div className="frontier-toolbar-field">
@@ -841,9 +1048,10 @@ export function TradingPlanningPage() {
         venue={venue}
         loaded={configsLoaded}
         open={setupOpen}
-        onOpen={setSetupOpen}
+        onOpen={openSetup}
         onRefresh={refreshSetup}
         onWalletState={setWalletState}
+        onComplete={completeSetup}
       />
       {
         <FrontierMarkets
@@ -859,18 +1067,24 @@ export function TradingPlanningPage() {
       {blockingRun && (
         <FrontierOrderBlocker
           run={blockingRun}
+          now={clock}
+          observation={observation}
+          checkError={
+            tradeCheckError?.runID === blockingRun.id
+              ? tradeCheckError.message
+              : undefined
+          }
+          onAccount={() => showSection('account')}
           busy={busy}
           onCheck={() => void checkPreviousTrade(blockingRun)}
           onView={() => {
             viewTrade(blockingRun)
-            document
-              .getElementById('frontier-account')
-              ?.scrollIntoView({ behavior: 'smooth' })
+            showSection('account')
           }}
           onRevoke={() => void runAction('stop', blockingRun)}
         />
       )}
-      {orderNotice && (
+      {orderNotice && !blockingRun && !error && (
         <p className="frontier-order-notice" role="status">
           {orderNotice}
         </p>
@@ -892,7 +1106,7 @@ export function TradingPlanningPage() {
           </div>
         )}
       <div className="planning-workspace">
-        <section className="planning-chart-pane">
+        <section className="planning-chart-pane" id="frontier-chart">
           <div className="planning-market">
             <div>
               <b>{symbol}</b>
@@ -909,16 +1123,9 @@ export function TradingPlanningPage() {
                 Fit selected plan
               </button>
               <button
-                disabled={busy || readyRecords.length < 2}
+                disabled={busy || comparisonPlans.length < 2}
                 onClick={() => {
-                  setCompare(
-                    records
-                      .filter(
-                        (r) => r.state === 'draft' && !expired(r.plan, clock)
-                      )
-                      .slice(0, 3)
-                      .map((r) => r.plan.id)
-                  )
+                  setCompare(comparisonPlans.slice(0, 4).map((p) => p.id))
                 }}
               >
                 Compare plans
@@ -962,6 +1169,59 @@ export function TradingPlanningPage() {
               </button>
             )}
           </div>
+          <section
+            className="frontier-plan-deck"
+            id="frontier-plans"
+            aria-label="Entry plans"
+          >
+            <div className="frontier-deck-heading">
+              <div>
+                <h2>
+                  {currentBatch
+                    ? 'Your latest plans'
+                    : deckPlans.length
+                      ? 'Saved idea'
+                      : 'Choose your entry'}
+                </h2>
+                <p>
+                  {currentBatch
+                    ? `Generated together · ${new Date(currentBatch.created).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}. `
+                    : 'Older drafts are in history below. '}
+                  Review updates the selected plan with current prices and
+                  funds.
+                </p>
+              </div>
+              <span>
+                {deckPlans.length} {deckPlans.length === 1 ? 'plan' : 'plans'}
+              </span>
+            </div>
+            <PlanStructures
+              checks={checks}
+              showAllTypes={Boolean(currentBatch)}
+              plans={deckPlans}
+              busy={planningBusy}
+              selected={selected}
+              onSelect={choose}
+              onReview={requestReview}
+              reviewDisabled={busy}
+              connected={Boolean(exchangeID)}
+              now={clock}
+            />
+            {!deckPlans.length && !planningBusy && !checks.length && (
+              <p className="frontier-deck-empty">
+                Generate plans to compare market, limit, ladder and TWAP entries
+                here.
+              </p>
+            )}
+            {archivedRecords.length > 0 && (
+              <details className="planning-all-plans">
+                <summary>Plan history · {archivedRecords.length}</summary>
+                <div className="planning-card-list">
+                  {archivedRecords.map(renderPlanCard)}
+                </div>
+              </details>
+            )}
+          </section>
           {current && (
             <div className="planning-selected">
               <b>
@@ -973,7 +1233,10 @@ export function TradingPlanningPage() {
               </b>
               <div className="planning-price-row">
                 <span>
-                  Entry <strong>{format(current.plan.idea.entry)}</strong>
+                  {current.plan.idea.execution.kind === 'market'
+                    ? 'Est. market entry'
+                    : 'Entry'}{' '}
+                  <strong>{format(current.plan.idea.entry)}</strong>
                 </span>
                 <span>
                   Stop loss{' '}
@@ -1005,7 +1268,11 @@ export function TradingPlanningPage() {
                   <thead>
                     <tr>
                       <th>Child order</th>
-                      <th>Limit price</th>
+                      <th>
+                        {current?.plan.idea.execution.kind === 'market'
+                          ? 'Execution estimate'
+                          : 'Limit price'}
+                      </th>
                       <th>Quantity</th>
                       <th>Release time</th>
                     </tr>
@@ -1055,7 +1322,10 @@ export function TradingPlanningPage() {
                   {(
                     Object.keys(defaultLimits) as Exclude<
                       keyof Constraints,
-                      'leverage' | 'available_margin'
+                      | 'leverage'
+                      | 'available_margin'
+                      | 'sizing_policy'
+                      | 'planning_only'
                     >[]
                   )
                     .filter(
@@ -1070,7 +1340,8 @@ export function TradingPlanningPage() {
                             equity: 'Equity budget',
                             max_risk: 'Maximum planned loss',
                             max_notional: 'Maximum notional',
-                            min_reward_risk: 'Minimum net reward/risk',
+                            min_reward_risk:
+                              'Minimum net reward/risk (0 = no minimum)',
                             fee_bps: 'Fee assumption / bps',
                             slippage_bps: 'Slippage assumption / bps',
                           }[key]
@@ -1095,12 +1366,13 @@ export function TradingPlanningPage() {
                 <p>
                   Live sizing refreshes before planning and review. Leverage is
                   applied to current available margin, with execution costs
-                  reserved. Order-book liquidity and rounding can reduce size.
+                  reserved. Quantities are rounded to exchange steps. Market
+                  orders require enough depth within the approved price bound.
                   Hyperliquid costs must include Builder fees. Gaps, failed
                   protection and slippage may cause losses beyond the estimate.
                 </p>
                 <button disabled={busy} onClick={() => setBuilder(true)}>
-                  Custom limit / ladder / TWAP
+                  Custom market / limit / ladder / TWAP
                 </button>
                 <label>
                   Discussion preferences
@@ -1151,7 +1423,7 @@ export function TradingPlanningPage() {
             </div>
           </details>
         </section>
-        <aside className="planning-assistant">
+        <aside className="planning-assistant" id="frontier-assistant">
           <div className="planning-assistant-title">
             <div>
               <span className="frontier-eyebrow">YOUR TRADING COPILOT</span>
@@ -1191,61 +1463,24 @@ export function TradingPlanningPage() {
               onClick={() =>
                 send(
                   instruction.trim() ||
-                    'Compare single-limit, weighted ladder and TWAP plans for this market.'
+                    'Compare four plans in this order: market entry, single limit, weighted ladder and TWAP for this market.',
+                  true
                 )
               }
             >
               Generate plans
             </button>
           </div>
-          <div
-            className="frontier-view-tabs"
-            role="tablist"
-            aria-label="Trade assistant views"
-            onKeyDown={(event) => {
-              if (
-                !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)
-              )
-                return
+          <a
+            className="frontier-plans-link"
+            href="#frontier-plans"
+            onClick={(event) => {
               event.preventDefault()
-              const view =
-                event.key === 'Home' || event.key === 'ArrowLeft'
-                  ? 'chat'
-                  : 'plans'
-              setAssistantView(view)
-              event.currentTarget
-                .querySelector<HTMLButtonElement>(`#frontier-${view}-tab`)
-                ?.focus()
+              showSection('plans')
             }}
           >
-            <button
-              id="frontier-chat-tab"
-              role="tab"
-              aria-selected={assistantView === 'chat'}
-              tabIndex={assistantView === 'chat' ? 0 : -1}
-              aria-controls="frontier-chat-panel"
-              onClick={() => setAssistantView('chat')}
-            >
-              Assistant
-            </button>
-            <button
-              id="frontier-plans-tab"
-              role="tab"
-              aria-selected={assistantView === 'plans'}
-              tabIndex={assistantView === 'plans' ? 0 : -1}
-              aria-controls="frontier-plans-panel"
-              onClick={() => setAssistantView('plans')}
-            >
-              Plans{' '}
-              <span>
-                {
-                  records.filter(
-                    (r) => r.state === 'draft' && !expired(r.plan, clock)
-                  ).length
-                }
-              </span>
-            </button>
-          </div>
+            View entry plans <span>{deckPlans.length} →</span>
+          </a>
           {busy && (
             <div className="planning-progress" role="status" aria-live="polite">
               <span className="planning-spinner" />
@@ -1267,64 +1502,16 @@ export function TradingPlanningPage() {
                   box.scrollHeight - box.scrollTop - box.clientHeight < 80
             }}
           >
-            <div
-              className="planning-candidates"
-              hidden={assistantView !== 'plans'}
-              id="frontier-plans-panel"
-              role="tabpanel"
-              aria-labelledby="frontier-plans-tab"
-            >
-              <div className="planning-section-title">
-                <b>
-                  {busy || checks.length
-                    ? `Entry alternatives · ${turnPlanIDs.length} saved`
-                    : `Ready plans ${records.filter((r) => r.state === 'draft' && !expired(r.plan, clock)).length}`}
-                </b>
-              </div>
-              <PlanStructures
-                checks={checks}
-                plans={records
-                  .filter((record) => turnPlanIDs.includes(record.plan.id))
-                  .map((record) => record.plan)}
-                busy={planningBusy}
-                selected={selected}
-                onSelect={choose}
-              />
-              {!checks.length && readyRecords.length > 0 && (
-                <div className="planning-card-list frontier-ready-plans">
-                  {readyRecords.map(renderPlanCard)}
-                </div>
-              )}
-              {archivedRecords.length > 0 && (
-                <details className="planning-all-plans">
-                  <summary>Past plans · {archivedRecords.length}</summary>
-                  <div className="planning-card-list">
-                    {archivedRecords.map(renderPlanCard)}
-                  </div>
-                </details>
-              )}
-              {readyRecords.length === 0 && !busy && !checks.length && (
-                <p>
-                  No active plans yet. Generate fresh plans for this market.
-                </p>
-              )}
-            </div>
-            <div
-              className="planning-messages"
-              hidden={assistantView !== 'chat'}
-              id="frontier-chat-panel"
-              role="tabpanel"
-              aria-labelledby="frontier-chat-tab"
-            >
-              {messages.length === 0 && (
+            <div className="planning-messages" id="frontier-chat-panel">
+              {messages.length === 0 && !current && (
                 <div className="frontier-welcome">
                   <span className="frontier-welcome-icon" aria-hidden="true">
-                    ✳
+                    <img src="/icons/nofx-flow.svg" alt="" />
                   </span>
                   <h2>
-                    Turn a market view
+                    Your next move,
                     <br />
-                    into a clear plan.
+                    made clear.
                   </h2>
                   <p>
                     Tell me what you’re considering. I’ll map out entries, risk
@@ -1351,7 +1538,7 @@ export function TradingPlanningPage() {
                     <button
                       onClick={() =>
                         setInstruction(
-                          'Compare a single entry, a price ladder and a timed entry for this market.'
+                          'Compare market, single-limit, price-ladder and TWAP entries for this market.'
                         )
                       }
                     >
@@ -1369,6 +1556,12 @@ export function TradingPlanningPage() {
                   </div>
                 </div>
               )}
+              {messages.length === 0 && current && (
+                <p className="frontier-plan-hint">
+                  This plan is on the chart. Ask me to explain or revise it,
+                  then review the order when you are ready.
+                </p>
+              )}
               {messages
                 .filter(
                   (m, i) =>
@@ -1383,7 +1576,7 @@ export function TradingPlanningPage() {
                   </div>
                 ))}
             </div>
-            <div hidden={assistantView !== 'chat'}>
+            <div>
               <PlanningActivity items={trace} busy={planningBusy} />
             </div>
           </div>
@@ -1441,23 +1634,18 @@ export function TradingPlanningPage() {
                     className="planning-primary"
                     disabled={
                       busy ||
-                      expired(current.plan, clock) ||
-                      (!!exchangeID &&
-                        data.accounts[selected] !== exchangeID) ||
-                      Boolean(blockingRun)
+                      (!!exchangeID && data.accounts[selected] !== exchangeID)
                     }
                     onClick={() => {
-                      if (!exchangeID) setSetupOpen('exchange')
+                      if (!exchangeID) requestReview(current.plan)
                       else void reviewWithAccount(current.plan)
                     }}
                   >
-                    {expired(current.plan, clock)
-                      ? 'Expired; generate a new plan'
-                      : !exchangeID
-                        ? 'Connect account to trade'
-                        : blockingRun
-                          ? 'Resolve previous trade above'
-                          : 'Review order'}
+                    {!exchangeID
+                      ? 'Connect account to trade'
+                      : expired(current.plan, clock)
+                        ? 'Refresh & review order'
+                        : 'Review order'}
                   </button>
                 ) : run?.state === 'approved' ? (
                   <>
@@ -1536,6 +1724,7 @@ export function TradingPlanningPage() {
           onManual={manualEntry}
           onBusy={setBusy}
           onRefresh={reload}
+          onObserve={setObservation}
           onCheck={checkPreviousTrade}
         />
         <details className="planning-tools">
@@ -1603,7 +1792,12 @@ export function TradingPlanningPage() {
               {review.idea.side === 'long' ? 'Long' : 'Short'}
             </p>
             <div className="planning-price-row">
-              <span>Entry {format(review.idea.entry)}</span>
+              <span>
+                {review.idea.execution.kind === 'market'
+                  ? 'Est. market entry'
+                  : 'Entry'}{' '}
+                {format(review.idea.entry)}
+              </span>
               <span>Stop loss {format(review.idea.stop)}</span>
               <span>Target {format(review.idea.target)}</span>
             </div>
@@ -1614,6 +1808,13 @@ export function TradingPlanningPage() {
               {review.constraints.leverage || 1}x leverage
             </p>
             <PlanFunding plan={review} />
+            {reviewReplacement && (
+              <p role="note">
+                Confirming this order replaces your earlier unsubmitted{' '}
+                {reviewReplacement.plan.snapshot.symbol} approval. Existing
+                exchange orders and positions are unchanged by the replacement.
+              </p>
+            )}
             <p>
               Quantity is locked at this review; balance changes require a new
               review.
@@ -1621,8 +1822,10 @@ export function TradingPlanningPage() {
             <details>
               <summary>Execution and protection details</summary>
               <p>
-                Only the locked, fixed-limit basket will be submitted. Ladder
-                entries are released immediately; TWAP slices follow the
+                {review.idea.execution.kind === 'market'
+                  ? 'Market entry is sent immediately after approval. Binance, OKX and Bitget use market orders; Hyperliquid uses an IOC order within the approved slippage bound. Actual fill may differ and any unfilled IOC quantity is canceled. '
+                  : 'Only the locked, fixed-limit basket will be submitted. '}
+                Ladder entries are released immediately; TWAP slices follow the
                 schedule. Partial fills receive matching reduce-only protection.
                 Protection failures stop further entries and require manual
                 review. Stopping entries does not close filled positions. Actual
@@ -1632,7 +1835,11 @@ export function TradingPlanningPage() {
             <table>
               <thead>
                 <tr>
-                  <th>Limit price</th>
+                  <th>
+                    {review.idea.execution.kind === 'market'
+                      ? 'Execution estimate'
+                      : 'Limit price'}
+                  </th>
                   <th>Quantity</th>
                   <th>Release time</th>
                 </tr>
@@ -1703,6 +1910,7 @@ export function TradingPlanningPage() {
                 })
               }
             >
+              <option value="market">Market</option>
               <option value="limit">Single limit</option>
               <option value="ladder">Price ladder</option>
               <option value="twap">TWAP fixed limit</option>
@@ -1720,24 +1928,34 @@ export function TradingPlanningPage() {
               <option value="long">Long</option>
               <option value="short">Short</option>
             </select>
-            {(['entry', 'stop', 'target'] as const).map((k) => (
-              <label key={k}>
-                {
+            {builderIdea.execution.kind === 'market' && (
+              <p>
+                Entry uses the current market quote when you create the draft.
+                Actual fill may differ.
+              </p>
+            )}
+            {(['entry', 'stop', 'target'] as const)
+              .filter(
+                (k) => k !== 'entry' || builderIdea.execution.kind !== 'market'
+              )
+              .map((k) => (
+                <label key={k}>
                   {
-                    name: 'Name',
-                    entry: 'Limit price',
-                    stop: 'Stop loss',
-                    target: 'Take profit',
-                  }[k]
-                }
-                <input
-                  value={builderIdea[k]}
-                  onChange={(e) =>
-                    setBuilderIdea({ ...builderIdea, [k]: e.target.value })
+                    {
+                      name: 'Name',
+                      entry: 'Limit price',
+                      stop: 'Stop loss',
+                      target: 'Take profit',
+                    }[k]
                   }
-                />
-              </label>
-            ))}
+                  <input
+                    value={builderIdea[k]}
+                    onChange={(e) =>
+                      setBuilderIdea({ ...builderIdea, [k]: e.target.value })
+                    }
+                  />
+                </label>
+              ))}
             {builderIdea.execution.kind === 'ladder' && (
               <label>
                 Enter one price and quantity weight per line; weights must sum

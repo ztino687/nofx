@@ -138,10 +138,10 @@ export function AdvancedChart({
 
   // Indicator configuration
   const [indicators, setIndicators] = useState<IndicatorConfig[]>([
-    { id: 'volume', name: 'Volume', enabled: true, color: '#E0483B' },
+    { id: 'volume', name: 'Volume', enabled: true, color: '#295be8' },
     { id: 'ma5', name: 'MA5', enabled: false, color: '#FF6B6B', params: { period: 5 } },
     { id: 'ma10', name: 'MA10', enabled: false, color: '#4ECDC4', params: { period: 10 } },
-    { id: 'ma20', name: 'MA20', enabled: false, color: '#E0483B', params: { period: 20 } },
+    { id: 'ma20', name: 'MA20', enabled: false, color: '#295be8', params: { period: 20 } },
     { id: 'ma60', name: 'MA60', enabled: false, color: '#95E1D3', params: { period: 60 } },
     { id: 'ema12', name: 'EMA12', enabled: false, color: '#A8E6CF', params: { period: 12 } },
     { id: 'ema26', name: 'EMA26', enabled: false, color: '#FFD3B6', params: { period: 26 } },
@@ -356,18 +356,18 @@ export function AdvancedChart({
       width: chartContainerRef.current.clientWidth || 800,
       height: chartContainerRef.current.clientHeight || height,
       layout: {
-        background: { color: '#F1ECE2' },
-        textColor: '#1A1813',
+        background: { color: '#f6f8fc' },
+        textColor: '#192434',
         fontSize: 12,
       },
       grid: {
         vertLines: {
-          color: 'rgba(26, 24, 19, 0.08)',
+          color: 'rgba(25,36,52, 0.08)',
           style: 1,
           visible: true,
         },
         horzLines: {
-          color: 'rgba(26, 24, 19, 0.08)',
+          color: 'rgba(25,36,52, 0.08)',
           style: 1,
           visible: true,
         },
@@ -375,20 +375,20 @@ export function AdvancedChart({
       crosshair: {
         mode: 1,
         vertLine: {
-          color: 'rgba(224, 72, 59, 0.5)',
+          color: 'rgba(41,91,232, 0.5)',
           width: 1,
           style: 2,
-          labelBackgroundColor: '#E0483B',
+          labelBackgroundColor: '#295be8',
         },
         horzLine: {
-          color: 'rgba(224, 72, 59, 0.5)',
+          color: 'rgba(41,91,232, 0.5)',
           width: 1,
           style: 2,
-          labelBackgroundColor: '#E0483B',
+          labelBackgroundColor: '#295be8',
         },
       },
       rightPriceScale: {
-        borderColor: 'rgba(26, 24, 19, 0.14)',
+        borderColor: 'rgba(25,36,52, 0.14)',
         scaleMargins: {
           top: 0.1,
           bottom: 0.25,
@@ -397,7 +397,7 @@ export function AdvancedChart({
         entireTextOnly: false,
       },
       timeScale: {
-        borderColor: 'rgba(26, 24, 19, 0.14)',
+        borderColor: 'rgba(25,36,52, 0.14)',
         timeVisible: true,
         secondsVisible: false,
         borderVisible: true,
@@ -780,7 +780,7 @@ export function AdvancedChart({
             const isLimit = order.type === 'LIMIT'
 
             // Set price line style
-            let lineColor = '#E0483B' // Default vermilion
+            let lineColor = '#295be8' // Default vermilion
             const lineStyle = 2 // dashed
             let title = ''
 
@@ -791,7 +791,7 @@ export function AdvancedChart({
               lineColor = '#2E8B57' // green - take profit
               title = `TP ${order.quantity}`
             } else if (isLimit) {
-              lineColor = '#E0483B' // vermilion - limit order
+              lineColor = '#295be8' // vermilion - limit order
               title = `Limit ${order.side} ${order.quantity}`
             } else {
               title = `${order.type} ${order.quantity}`
@@ -918,10 +918,10 @@ export function AdvancedChart({
     <div
       className="relative shadow-xl"
       style={{
-        background: '#F1ECE2',
+        background: '#f6f8fc',
         borderRadius: '12px',
         overflow: 'hidden',
-        border: '1px solid rgba(26, 24, 19, 0.14)',
+        border: '1px solid rgba(25,36,52, 0.14)',
         height: '100%',
         display: 'flex',
         flexDirection: 'column',
@@ -930,7 +930,7 @@ export function AdvancedChart({
       {/* Compact Professional Header */}
       <div
         className="flex items-center justify-between px-4 py-2"
-        style={{ borderBottom: '1px solid rgba(26, 24, 19, 0.14)', background: '#F7F4EC', flexShrink: 0 }}
+        style={{ borderBottom: '1px solid rgba(25,36,52, 0.14)', background: '#ffffff', flexShrink: 0 }}
       >
         {/* Left: Symbol Info + Price */}
         <div className="flex items-center gap-4">
@@ -941,8 +941,8 @@ export function AdvancedChart({
             <span
               className="text-[10px] px-1.5 py-0.5 rounded-sm font-medium uppercase"
               style={{
-                background: 'rgba(224, 72, 59, 0.1)',
-                color: '#E0483B',
+                background: 'rgba(41,91,232, 0.1)',
+                color: '#295be8',
               }}
             >
               {exchange?.toUpperCase()}
@@ -951,7 +951,7 @@ export function AdvancedChart({
 
           {/* Price Display */}
           {marketStats && (
-            <div className="flex items-center gap-3 pl-3 border-l border-[rgba(26,24,19,0.14)]">
+            <div className="flex items-center gap-3 pl-3 border-l border-[rgba(25,36,52,0.14)]">
               <span
                 className="text-base font-bold tabular-nums"
                 style={{ color: marketStats.priceChange >= 0 ? '#2E8B57' : '#D6433A' }}
@@ -994,8 +994,8 @@ export function AdvancedChart({
             onClick={() => setShowIndicatorPanel(!showIndicatorPanel)}
             className="flex items-center gap-1 px-2 py-1 rounded-sm text-[11px] font-medium transition-all"
             style={{
-              background: showIndicatorPanel ? 'rgba(224, 72, 59, 0.12)' : 'transparent',
-              color: showIndicatorPanel ? '#E0483B' : '#8A8478',
+              background: showIndicatorPanel ? 'rgba(41,91,232, 0.12)' : 'transparent',
+              color: showIndicatorPanel ? '#295be8' : '#707e92',
             }}
           >
             <Settings className="w-3 h-3" />
@@ -1007,7 +1007,7 @@ export function AdvancedChart({
             className="flex items-center gap-1 px-2 py-1 rounded-sm text-[11px] font-medium transition-all"
             style={{
               background: showOrderMarkers ? 'rgba(46, 139, 87, 0.15)' : 'transparent',
-              color: showOrderMarkers ? '#2E8B57' : '#8A8478',
+              color: showOrderMarkers ? '#2E8B57' : '#707e92',
             }}
             title={t('advancedChart.orderMarkers', language)}
           >
@@ -1021,8 +1021,8 @@ export function AdvancedChart({
         <div
           className="absolute top-16 right-4 z-10 rounded-lg shadow-2xl backdrop-blur-xs"
           style={{
-            background: '#F7F4EC',
-            border: '1px solid rgba(224, 72, 59, 0.2)',
+            background: '#ffffff',
+            border: '1px solid rgba(41,91,232, 0.2)',
             maxHeight: '500px',
             minWidth: '280px',
             overflowY: 'auto',
@@ -1031,7 +1031,7 @@ export function AdvancedChart({
           {/* Title bar */}
           <div
             className="flex items-center justify-between px-4 py-3 border-b"
-            style={{ borderColor: 'rgba(26, 24, 19, 0.14)' }}
+            style={{ borderColor: 'rgba(25,36,52, 0.14)' }}
           >
             <div className="flex items-center gap-2">
               <BarChart2 className="w-4 h-4 text-nofx-gold" />
@@ -1059,11 +1059,11 @@ export function AdvancedChart({
                     type="checkbox"
                     checked={indicator.enabled}
                     onChange={() => toggleIndicator(indicator.id)}
-                    className="w-4 h-4 rounded-sm border-[rgba(26,24,19,0.3)] text-nofx-gold focus:ring-2 focus:ring-nofx-gold/50"
+                    className="w-4 h-4 rounded-sm border-[rgba(25,36,52,0.3)] text-nofx-gold focus:ring-2 focus:ring-nofx-gold/50"
                   />
                 </div>
                 <div
-                  className="w-8 h-3 rounded-xs border border-[rgba(26,24,19,0.14)]"
+                  className="w-8 h-3 rounded-xs border border-[rgba(25,36,52,0.14)]"
                   style={{ backgroundColor: indicator.color }}
                 ></div>
                 <span className="text-sm text-nofx-text-muted group-hover:text-nofx-text transition-colors flex-1">
@@ -1079,7 +1079,7 @@ export function AdvancedChart({
           {/* Bottom hint */}
           <div
             className="px-4 py-2 text-xs text-nofx-text-muted border-t"
-            style={{ borderColor: 'rgba(26, 24, 19, 0.14)' }}
+            style={{ borderColor: 'rgba(25,36,52, 0.14)' }}
           >
             {t('advancedChart.clickToToggle', language)}
           </div>
@@ -1099,19 +1099,19 @@ export function AdvancedChart({
               left: '10px',
               top: '10px',
               padding: '8px 12px',
-              background: 'rgba(247, 244, 236, 0.95)',
-              border: '1px solid rgba(224, 72, 59, 0.3)',
+              background: 'rgba(255,255,255, 0.95)',
+              border: '1px solid rgba(41,91,232, 0.3)',
               borderRadius: '6px',
-              color: '#1A1813',
+              color: '#192434',
               fontSize: '12px',
               fontFamily: 'monospace',
               pointerEvents: 'none',
               zIndex: 10,
               backdropFilter: 'blur(10px)',
-              boxShadow: '0 4px 12px rgba(26, 24, 19, 0.15)',
+              boxShadow: '0 4px 12px rgba(25,36,52, 0.15)',
             }}
           >
-            <div style={{ marginBottom: '6px', color: '#E0483B', fontWeight: 'bold', fontSize: '11px' }}>
+            <div style={{ marginBottom: '6px', color: '#295be8', fontWeight: 'bold', fontSize: '11px' }}>
               {new Date((tooltipData.time as number) * 1000).toLocaleString(language === 'zh' ? 'zh-CN' : 'en-US', {
                 month: 'short',
                 day: 'numeric',
@@ -1120,16 +1120,16 @@ export function AdvancedChart({
               })}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 12px', fontSize: '11px' }}>
-              <span style={{ color: '#8A8478' }}>O:</span>
-              <span style={{ color: '#1A1813', fontWeight: '500' }}>{tooltipData.open?.toFixed(2)}</span>
+              <span style={{ color: '#707e92' }}>O:</span>
+              <span style={{ color: '#192434', fontWeight: '500' }}>{tooltipData.open?.toFixed(2)}</span>
 
-              <span style={{ color: '#8A8478' }}>H:</span>
+              <span style={{ color: '#707e92' }}>H:</span>
               <span style={{ color: '#2E8B57', fontWeight: '500' }}>{tooltipData.high?.toFixed(2)}</span>
 
-              <span style={{ color: '#8A8478' }}>L:</span>
+              <span style={{ color: '#707e92' }}>L:</span>
               <span style={{ color: '#D6433A', fontWeight: '500' }}>{tooltipData.low?.toFixed(2)}</span>
 
-              <span style={{ color: '#8A8478' }}>C:</span>
+              <span style={{ color: '#707e92' }}>C:</span>
               <span style={{
                 color: tooltipData.close >= tooltipData.open ? '#2E8B57' : '#D6433A',
                 fontWeight: 'bold'
@@ -1139,8 +1139,8 @@ export function AdvancedChart({
 
               {tooltipData.volume > 0 && baseUnit && (
                 <>
-                  <span style={{ color: '#8A8478' }}>V({baseUnit}):</span>
-                  <span style={{ color: '#E0483B', fontWeight: '500' }}>
+                  <span style={{ color: '#707e92' }}>V({baseUnit}):</span>
+                  <span style={{ color: '#295be8', fontWeight: '500' }}>
                     {formatVolume(tooltipData.volume)}
                   </span>
                 </>
@@ -1148,8 +1148,8 @@ export function AdvancedChart({
 
               {tooltipData.quoteVolume > 0 && quoteUnit && (
                 <>
-                  <span style={{ color: '#8A8478' }}>V({quoteUnit}):</span>
-                  <span style={{ color: '#E0483B', fontWeight: '500' }}>
+                  <span style={{ color: '#707e92' }}>V({quoteUnit}):</span>
+                  <span style={{ color: '#295be8', fontWeight: '500' }}>
                     {formatVolume(tooltipData.quoteVolume)}
                   </span>
                 </>
@@ -1173,7 +1173,7 @@ export function AdvancedChart({
             style={{
               fontSize: '56px',
               fontWeight: '700',
-              color: 'rgba(224, 72, 59, 0.12)',
+              color: 'rgba(41,91,232, 0.12)',
               letterSpacing: '4px',
               fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
             }}

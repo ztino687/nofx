@@ -15,15 +15,15 @@ export function ModelStepIndicator({ currentStep, labels }: ModelStepIndicatorPr
             <div
               className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-all"
               style={{
-                background: index < currentStep ? '#2E8B57' : index === currentStep ? '#E0483B' : '#E8E2D5',
-                color: index <= currentStep ? '#F7F4EC' : '#8A8478',
+                background: index < currentStep ? '#2E8B57' : index === currentStep ? '#295be8' : '#edf1f7',
+                color: index <= currentStep ? '#ffffff' : '#707e92',
               }}
             >
               {index < currentStep ? <Check className="w-4 h-4" /> : index + 1}
             </div>
             <span
               className="text-xs font-medium hidden sm:block"
-              style={{ color: index === currentStep ? '#1A1813' : '#8A8478' }}
+              style={{ color: index === currentStep ? '#192434' : '#707e92' }}
             >
               {label}
             </span>
@@ -31,7 +31,7 @@ export function ModelStepIndicator({ currentStep, labels }: ModelStepIndicatorPr
           {index < labels.length - 1 && (
             <div
               className="w-8 h-0.5 mx-1"
-              style={{ background: index < currentStep ? '#2E8B57' : '#E8E2D5' }}
+              style={{ background: index < currentStep ? '#2E8B57' : '#edf1f7' }}
             />
           )}
         </React.Fragment>

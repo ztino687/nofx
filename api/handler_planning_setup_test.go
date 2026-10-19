@@ -93,6 +93,55 @@ func TestFrontierWalletSetupIsOwnerScopedIdempotentAndNeverExportsSecrets(t *tes
 	if json.Unmarshal(w.Body.Bytes(), &response) != nil || response["address"] != alice.Address || response["balance_status"] != "unknown" {
 		t.Fatal("unexpected public response", response)
 	}
+	// The legacy onboarding route must obey the same owner boundary. An orphan
+	// wallet is not an invitation to transfer its key to the next signed-in user.
+	orphan := &store.AIModel{ID: "orphan", UserID: "deleted-user", Provider: "claw402", APIKey: crypto.EncryptedString(secret)}
+	if err = db.Create(orphan).Error; err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CLAW402_WALLET_ADDRESS", alice.Address)
+	t.Chdir(t.TempDir())
+	legacy := gin.New()
+	legacy.Use(func(c *gin.Context) { c.Set("user_id", "carol") })
+	legacy.GET("/current", server.handleCurrentBeginnerWallet)
+	legacy.POST("/prepare", server.handleBeginnerOnboarding)
+	w = httptest.NewRecorder()
+	legacy.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/current", nil))
+	if w.Code != 200 || strings.Contains(w.Body.String(), alice.Address) {
+		t.Fatal("legacy read exposed the environment wallet")
+	}
+	w = httptest.NewRecorder()
+	legacy.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/prepare", nil))
+	var prepared beginnerOnboardingResponse
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &prepared) != nil || prepared.Address == alice.Address || prepared.Address == "" || prepared.EnvSaved || strings.Contains(w.Body.String(), "private_key") || w.Header().Get("Cache-Control") != "no-store" {
+		t.Fatal("legacy onboarding leaked or adopted a wallet", w.Code)
+	}
+	var owner string
+	db.Raw("SELECT user_id FROM ai_models WHERE id = ?", orphan.ID).Scan(&owner)
+	if owner != "deleted-user" {
+		t.Fatal("orphan wallet ownership changed")
+	}
+	carolModels, _ := st.AIModel().List("carol")
+	if len(carolModels) != 1 {
+		t.Fatal("legacy wallet not persisted")
+	}
+	var carolStored string
+	db.Raw("SELECT api_key FROM ai_models WHERE id = ?", carolModels[0].ID).Scan(&carolStored)
+	if !strings.HasPrefix(carolStored, "ENC:v1:") {
+		t.Fatal("legacy wallet was not encrypted")
+	}
+	if os.Getenv("CLAW402_WALLET_KEY") != "unchanged-fixture" {
+		t.Fatal("legacy route changed process credentials")
+	}
+	if _, err := os.Stat(".env"); !os.IsNotExist(err) {
+		t.Fatal("legacy route wrote a plaintext environment file")
+	}
+	w = httptest.NewRecorder()
+	legacy.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/prepare", nil))
+	var reused beginnerOnboardingResponse
+	if json.Unmarshal(w.Body.Bytes(), &reused) != nil || reused.Address != prepared.Address || !reused.ReusedExisting {
+		t.Fatal("legacy setup replaced the current owner's wallet")
+	}
 	invalid := &store.AIModel{ID: "invalid", UserID: "invalid-user", Provider: "claw402", APIKey: crypto.EncryptedString("invalid-existing-fixture")}
 	if err = db.Create(invalid).Error; err != nil {
 		t.Fatal(err)

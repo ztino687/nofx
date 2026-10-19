@@ -1,18 +1,23 @@
+import { apiKeyVenues, venueName } from '../../lib/frontierAccounts'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../lib/api'
 import { getAuthHeaders, handleJSONResponse } from '../../lib/api/helpers'
 import {
   planningAPI,
+  CloseNotSubmittedError,
   type LiveRun,
   type PlanningState,
 } from '../../lib/planning'
 import {
   accountPositions,
   closeAccountPosition,
+  positionDecimal,
   nativeMarket,
   type AccountPosition,
 } from '../../lib/frontierAccount'
+import { accountLabel } from '../../lib/frontierAccounts'
 import type { Exchange } from '../../types'
+import type { AccountObservation } from '../../lib/frontierWorkspace'
 
 interface OpenOrder {
   order_id: string
@@ -37,7 +42,11 @@ const amount = (value: number) =>
 const exchangeURL = (venue: string) =>
   venue === 'hyperliquid'
     ? 'https://app.hyperliquid.xyz/'
-    : 'https://www.binance.com/en/futures'
+    : venue === 'okx'
+      ? 'https://www.okx.com/trade-swap/btc-usdt-swap'
+      : venue === 'bitget'
+        ? 'https://www.bitget.com/futures/usdt/BTCUSDT'
+        : 'https://www.binance.com/en/futures'
 const liveStates = new Set([
   'starting',
   'running',
@@ -59,6 +68,7 @@ export function FrontierAccount({
   onBusy,
   onRefresh,
   onCheck,
+  onObserve,
 }: {
   account?: Exchange
   accounts: Exchange[]
@@ -71,6 +81,7 @@ export function FrontierAccount({
   onBusy: (value: boolean) => void
   onRefresh: () => Promise<void>
   onCheck?: (run: LiveRun) => Promise<void>
+  onObserve?: (snapshot: AccountObservation | null) => void
 }) {
   const [snapshot, setSnapshot] = useState<{
     accountID: string
@@ -106,18 +117,20 @@ export function FrontierAccount({
       const traders = (await api.getTraders(true)).filter(
         (t) => t.exchange_id === accountID
       )
-      if (!traders.length)
-        throw new Error(
-          'Connect a NOFX trader to this account in Config to read its live positions.'
-        )
-      const traderID = traders[0].trader_id
+      const traderID = traders[0]?.trader_id
       if (version !== generation.current) return
-      setBinding({
-        id: traderID,
-        accountID,
-        running: traders.some((t) => t.is_running),
-      })
-      const values = accountPositions(await api.getPositions(traderID, true))
+      setBinding(
+        traderID
+          ? {
+              id: traderID,
+              accountID,
+              running: traders.some((t) => t.is_running),
+            }
+          : null
+      )
+      const values = accountPositions(
+        await api.getPositions(undefined, true, accountID)
+      )
       if (version !== generation.current) return
       setSnapshot({
         accountID,
@@ -135,10 +148,13 @@ export function FrontierAccount({
       }
       setAttempted(new Set(attemptLatch.current))
       setError('')
+      const orderRequest = new AbortController()
+      const orderDeadline = setTimeout(() => orderRequest.abort(), 30000)
       try {
-        const query = new URLSearchParams({ trader_id: traderID, symbol })
+        const query = new URLSearchParams({ exchange_id: accountID, symbol })
         const response = await fetch('/api/open-orders?' + query, {
           headers: getAuthHeaders(),
+          signal: orderRequest.signal,
         })
         const rows = await handleJSONResponse<OpenOrder[]>(response)
         if (
@@ -161,6 +177,8 @@ export function FrontierAccount({
           setOrders(null)
           setOrderError('Current exchange orders could not be verified.')
         }
+      } finally {
+        clearTimeout(orderDeadline)
       }
     } catch (e) {
       if (version === generation.current)
@@ -205,18 +223,42 @@ export function FrontierAccount({
       ? orders.rows
       : []
   const importantRuns = runs
-    .filter((run) => liveStates.has(run.state))
+    .filter((run) => run.exchange_id === accountID && liveStates.has(run.state))
     .sort(
       (a, b) =>
         Number(b.state === 'needs_attention') -
         Number(a.state === 'needs_attention')
     )
   const key = (p: AccountPosition) => accountID + '/' + p.symbol + '/' + p.side
+  useEffect(() => {
+    onObserve?.(
+      !error && snapshot?.accountID === accountID
+        ? {
+            accountID,
+            symbol,
+            positions: snapshot.positions,
+            orders:
+              !orderError &&
+              orders?.accountID === accountID &&
+              orders.symbol === symbol
+                ? orders.rows
+                : null,
+            checkedAt: Date.parse(snapshot.at),
+          }
+        : null
+    )
+  }, [accountID, symbol, snapshot, orders, error, orderError, onObserve])
 
   async function closePosition() {
-    if (!confirm || !currentBinding || busy) return
+    if (
+      !confirm ||
+      !accountID ||
+      (!apiKeyVenues.includes(venue) && !currentBinding) ||
+      busy
+    )
+      return
     const position = confirm,
-      traderID = currentBinding.id,
+      traderID = currentBinding?.id,
       attempt = key(position)
     if (attemptLatch.current.has(attempt)) return
     attemptLatch.current.add(attempt)
@@ -225,9 +267,11 @@ export function FrontierAccount({
     onBusy(true)
     setNotice('Stopping remaining entries before closing the position…')
     let closeSent = false
+    let closeMessage = ''
     try {
       const traders = await api.getTraders(true)
       if (
+        !apiKeyVenues.includes(venue) &&
         !traders.some(
           (t) => t.trader_id === traderID && t.exchange_id === accountID
         )
@@ -246,7 +290,7 @@ export function FrontierAccount({
         wait: () => new Promise((resolve) => setTimeout(resolve, 500)),
         close: async () => {
           const fresh = accountPositions(
-            await api.getPositions(traderID, true)
+            await api.getPositions(undefined, true, accountID)
           ).find(
             (p) => p.symbol === position.symbol && p.side === position.side
           )
@@ -259,25 +303,47 @@ export function FrontierAccount({
             throw new Error(
               'Position changed. Refresh and review its size before closing.'
             )
+          if (apiKeyVenues.includes(venue)) {
+            const quantity = positionDecimal(fresh.quantity)
+            const entryPrice = positionDecimal(fresh.entry)
+            closeSent = true
+            const result = await planningAPI<{ message: string }>(
+              'close-position',
+              {
+                exchange_id: accountID,
+                request_id: crypto.randomUUID(),
+                symbol: position.symbol,
+                side: position.side,
+                quantity,
+                entry_price: entryPrice,
+              }
+            )
+            closeMessage = result.message
+            return result
+          }
           closeSent = true
           return api.closePosition(
-            traderID,
+            traderID!,
             position.symbol,
             position.side.toUpperCase()
           )
         },
       })
       setNotice(
-        'Close request accepted. Verify the refreshed position below; no automatic repeat will be sent.'
+        closeMessage ||
+          'Close request accepted. Verify the refreshed position below; no automatic repeat will be sent.'
       )
     } catch (e) {
-      if (!closeSent) {
+      const notSubmitted = !closeSent || e instanceof CloseNotSubmittedError
+      if (notSubmitted) {
         attemptLatch.current.delete(attempt)
         setAttempted(new Set(attemptLatch.current))
       }
       setNotice(
         (e instanceof Error ? e.message : String(e)) +
-          ' Check the exchange before sending another close.'
+          (notSubmitted
+            ? ' No close order was submitted. Refresh the account, then review the position again.'
+            : ' Check the exchange before sending another close.')
       )
     } finally {
       onBusy(false)
@@ -300,7 +366,7 @@ export function FrontierAccount({
           </h2>
           <p>
             {account
-              ? `${account.name} · ${venue === 'binance' ? 'Binance futures' : 'Hyperliquid'}${account.hyperliquidWalletAddr ? ' · ' + account.hyperliquidWalletAddr.slice(0, 8) + '…' + account.hyperliquidWalletAddr.slice(-4) : ''}`
+              ? `${accountLabel(account, accounts)} · ${venueName(venue)}${account.hyperliquidWalletAddr ? ' · ' + account.hyperliquidWalletAddr.slice(0, 8) + '…' + account.hyperliquidWalletAddr.slice(-4) : ''}`
               : 'Select a trading account to see all its positions.'}
           </p>
         </div>
@@ -444,20 +510,29 @@ export function FrontierAccount({
                         {venue === 'hyperliquid' ? 'USDC' : 'USDT'}
                       </td>
                       <td>
-                        <button
-                          disabled={
-                            busy ||
-                            !!error ||
-                            !currentBinding ||
-                            currentBinding.running ||
-                            attempted.has(key(p))
-                          }
-                          onClick={() => setConfirm(p)}
-                        >
-                          {attempted.has(key(p))
-                            ? 'Verify close at exchange'
-                            : 'Close position'}
-                        </button>
+                        {!currentBinding && !apiKeyVenues.includes(venue) ? (
+                          <a
+                            href={exchangeURL(venue)}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Close on exchange ↗
+                          </a>
+                        ) : (
+                          <button
+                            disabled={
+                              busy ||
+                              !!error ||
+                              !!currentBinding?.running ||
+                              attempted.has(key(p))
+                            }
+                            onClick={() => setConfirm(p)}
+                          >
+                            {attempted.has(key(p))
+                              ? 'Verify close at exchange'
+                              : 'Close position'}
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -621,8 +696,10 @@ export function FrontierAccount({
               </p>
               {run.state === 'needs_attention' && (
                 <p className="frontier-monitor-alert">
-                  Monitor needs review · exchange positions and orders above are
-                  the current source.
+                  {run.error?.startsWith('Service restarted')
+                    ? 'The server restarted, so this order monitor is paused. Check the live position and exit orders above.'
+                    : run.error ||
+                      'Order monitoring needs review. Check the live position and exit orders above.'}
                 </p>
               )}
             </div>
@@ -704,8 +781,8 @@ export function FrontierAccount({
               Close {nativeMarket(confirm.symbol, venue)} {confirm.side}?
             </h2>
             <p>
-              {account?.name} · {venue} · full position{' '}
-              {format(confirm.quantity)}
+              {account ? accountLabel(account, accounts) : ''} · {venue} · full
+              position {format(confirm.quantity)}
             </p>
             <p>
               This sends a market close through NOFX. Remaining Frontier entry

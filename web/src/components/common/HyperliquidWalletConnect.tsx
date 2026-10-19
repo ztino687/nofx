@@ -25,6 +25,7 @@ import {
   getWalletProviderName,
   getWalletProviderForAddress,
   normalizeAddress,
+  rememberWalletProvider,
   shortAddress,
   signHyperliquidUserAction,
   subscribeWalletProviders,
@@ -35,7 +36,8 @@ interface HyperliquidWalletConnectProps {
   language: Language
   isLoggedIn: boolean
   variant?: 'dropdown' | 'inline'
-  onSaved?: () => void | Promise<void>
+  account?: { id: string; walletAddress: string }
+  onSaved?: (exchangeID?: string) => void | Promise<void>
 }
 
 interface FlowState {
@@ -121,13 +123,21 @@ export function HyperliquidWalletConnect({
   language,
   isLoggedIn,
   variant = 'dropdown',
+  account: selectedAccount,
   onSaved,
 }: HyperliquidWalletConnectProps) {
   const inline = variant === 'inline'
   const [open, setOpen] = useState(inline)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [state, setState] = useState<FlowState>(() => getSavedState())
+  const [state, setState] = useState<FlowState>(() =>
+    selectedAccount
+      ? {
+          mainWallet: normalizeAddress(selectedAccount.walletAddress),
+          savedExchangeId: selectedAccount.id,
+        }
+      : getSavedState()
+  )
   const currentMainWalletRef = useRef(state.mainWallet)
   const reconciliationGenerationRef = useRef(0)
   const agentRefreshGenerationRef = useRef(0)
@@ -204,8 +214,8 @@ export function HyperliquidWalletConnect({
         language === 'zh' ? 'No EVM wallet detected' : 'No EVM wallet detected',
       noWalletDetail:
         language === 'zh'
-          ? 'Install Rabby or MetaMask, create or import a wallet, then return here to connect Hyperliquid.'
-          : 'Install Rabby or MetaMask, create or import a wallet, then return here to connect Hyperliquid.',
+          ? 'Install an EVM wallet extension in this browser, then reload and choose it here.'
+          : 'Install an EVM wallet extension in this browser, then reload and choose it here.',
       installRabby: language === 'zh' ? 'Install Rabby' : 'Install Rabby',
       installMetaMask:
         language === 'zh' ? 'Install MetaMask' : 'Install MetaMask',
@@ -230,8 +240,8 @@ export function HyperliquidWalletConnect({
   }, [])
 
   useEffect(() => {
-    saveState(state)
-  }, [state])
+    if (!selectedAccount) saveState(state)
+  }, [state, selectedAccount])
 
   useEffect(() => {
     if (!isLoggedIn) {
@@ -432,7 +442,8 @@ export function HyperliquidWalletConnect({
   useEffect(() => {
     if (open && state.mainWallet) {
       void refreshBalance(state.mainWallet)
-      void refreshAgentInfo(state.mainWallet)
+      // Let saved-account reconciliation load its agent before a direct refresh.
+      if (state.agentAddress) void refreshAgentInfo(state.mainWallet)
     }
   }, [open, state.mainWallet])
 
@@ -650,19 +661,15 @@ export function HyperliquidWalletConnect({
       setError('Choose the wallet extension you want to connect.')
       return
     }
-    const provider =
-      selectedWalletProvider ||
-      (await getWalletProviderForAddress(expectedWallet))
-    if (!provider) {
-      setError(
-        language === 'zh'
-          ? 'No EVM wallet detected. Install MetaMask, Rabby, OKX or Coinbase Wallet.'
-          : 'No EVM wallet detected. Install MetaMask, Rabby, OKX or Coinbase Wallet.'
-      )
-      return
-    }
     setBusy(true)
     try {
+      const provider =
+        selectedWalletProvider ||
+        (await getWalletProviderForAddress(expectedWallet))
+      if (!provider)
+        throw new Error(
+          'No browser wallet detected. Install an EVM wallet extension in this browser and reload.'
+        )
       const accounts = await provider.request({ method: 'eth_requestAccounts' })
       const first =
         Array.isArray(accounts) && typeof accounts[0] === 'string'
@@ -681,6 +688,7 @@ export function HyperliquidWalletConnect({
         )
       }
       walletProviderRef.current = provider
+      rememberWalletProvider(normalized, provider)
       currentMainWalletRef.current = normalized
       setState((prev) => {
         const sameWallet = prev.mainWallet === normalized
@@ -797,9 +805,9 @@ export function HyperliquidWalletConnect({
     }
   }
 
-  async function refreshAfterSave() {
+  async function refreshAfterSave(exchangeID?: string) {
     try {
-      await onSaved?.()
+      await onSaved?.(exchangeID)
     } catch {
       toast.error(
         'Connection saved. Refresh the page to update dashboard data.'
@@ -1046,7 +1054,7 @@ export function HyperliquidWalletConnect({
         true,
         createdExchangeId || state.savedExchangeId
       )
-      await refreshAfterSave()
+      await refreshAfterSave(createdExchangeId || state.savedExchangeId)
       toast.success('Trading authorization finalized')
     } catch (err) {
       if (approvalComplete) {
@@ -1134,7 +1142,7 @@ export function HyperliquidWalletConnect({
           state.builderApproved,
           existing.id
         )
-        await refreshAfterSave()
+        await refreshAfterSave(existing.id)
         return
       }
       if (!state.agentPrivateKey) {
@@ -1170,7 +1178,7 @@ export function HyperliquidWalletConnect({
         state.builderApproved,
         result.id
       )
-      await refreshAfterSave()
+      await refreshAfterSave(result.id)
     } catch (err) {
       setError(getWalletErrorMessage(err, 'Failed to save Hyperliquid account'))
     } finally {
@@ -1212,7 +1220,9 @@ export function HyperliquidWalletConnect({
         >
           <Wallet className="w-4 h-4" />
           <span>
-            {connectedAddr ? shortAddress(connectedAddr) : text.connect}
+            {connectedAddr
+              ? `Hyperliquid · ${shortAddress(connectedAddr)}`
+              : text.connect}
           </span>
           <ChevronDown className="w-4 h-4" />
         </button>
@@ -1220,9 +1230,9 @@ export function HyperliquidWalletConnect({
 
       {(open || inline) && (
         <div
-          className={`${inline ? 'relative w-full' : 'absolute right-0 top-full mt-2 w-[min(420px,calc(100vw-2rem))] shadow-2xl shadow-black/10'} max-h-[calc(100vh-5.5rem)] overflow-y-auto rounded-2xl border border-[rgba(26,24,19,0.14)] bg-nofx-bg-lighter z-80`}
+          className={`${inline ? 'relative w-full' : 'absolute right-0 top-full mt-2 w-[min(420px,calc(100vw-2rem))] shadow-2xl shadow-black/10'} max-h-[calc(100vh-5.5rem)] overflow-y-auto rounded-2xl border border-[rgba(25,36,52,0.14)] bg-nofx-bg-lighter z-80`}
         >
-          <div className="flex items-start justify-between gap-4 border-b border-[rgba(26,24,19,0.14)] p-4 sm:p-5">
+          <div className="flex items-start justify-between gap-4 border-b border-[rgba(25,36,52,0.14)] p-4 sm:p-5">
             <div className="min-w-0">
               <h2 className="font-bold text-nofx-text">Connect Hyperliquid</h2>
               <p className="mt-1 text-xs leading-5 text-nofx-text-muted">
@@ -1233,7 +1243,7 @@ export function HyperliquidWalletConnect({
               <button
                 type="button"
                 onClick={() => setOpen(false)}
-                className="p-1 rounded-sm hover:bg-[rgba(26,24,19,0.06)] text-nofx-text-muted"
+                className="p-1 rounded-sm hover:bg-[rgba(25,36,52,0.06)] text-nofx-text-muted"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -1315,7 +1325,7 @@ export function HyperliquidWalletConnect({
                         className={`flex min-h-11 items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left text-xs font-semibold transition-colors ${
                           selected
                             ? 'border-nofx-gold bg-nofx-gold/10 text-nofx-text'
-                            : 'border-[rgba(26,24,19,0.14)] bg-nofx-bg-deeper text-nofx-text hover:border-[rgba(26,24,19,0.28)]'
+                            : 'border-[rgba(25,36,52,0.14)] bg-nofx-bg-deeper text-nofx-text hover:border-[rgba(25,36,52,0.28)]'
                         }`}
                       >
                         <span className="flex min-w-0 items-center gap-2">
@@ -1351,7 +1361,7 @@ export function HyperliquidWalletConnect({
                     href="https://rabby.io/"
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex items-center gap-2 rounded-lg border border-[rgba(26,24,19,0.14)] bg-nofx-bg-deeper px-3 py-2 text-xs font-semibold text-nofx-text hover:border-[rgba(26,24,19,0.24)] hover:bg-nofx-bg"
+                    className="inline-flex items-center gap-2 rounded-lg border border-[rgba(25,36,52,0.14)] bg-nofx-bg-deeper px-3 py-2 text-xs font-semibold text-nofx-text hover:border-[rgba(25,36,52,0.24)] hover:bg-nofx-bg"
                   >
                     <Download className="h-3.5 w-3.5" />
                     {text.installRabby}
@@ -1360,7 +1370,7 @@ export function HyperliquidWalletConnect({
                     href="https://metamask.io/download/"
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex items-center gap-2 rounded-lg border border-[rgba(26,24,19,0.14)] bg-nofx-bg-deeper px-3 py-2 text-xs font-semibold text-nofx-text hover:border-[rgba(26,24,19,0.24)] hover:bg-nofx-bg"
+                    className="inline-flex items-center gap-2 rounded-lg border border-[rgba(25,36,52,0.14)] bg-nofx-bg-deeper px-3 py-2 text-xs font-semibold text-nofx-text hover:border-[rgba(25,36,52,0.24)] hover:bg-nofx-bg"
                   >
                     <ExternalLink className="h-3.5 w-3.5" />
                     {text.installMetaMask}
@@ -1418,7 +1428,7 @@ export function HyperliquidWalletConnect({
             )}
 
             <div
-              className={`rounded-xl border border-[rgba(26,24,19,0.14)] bg-nofx-bg-deeper p-3 space-y-2 text-xs ${state.mainWallet ? '' : 'hidden'}`}
+              className={`rounded-xl border border-[rgba(25,36,52,0.14)] bg-nofx-bg-deeper p-3 space-y-2 text-xs ${state.mainWallet ? '' : 'hidden'}`}
             >
               {state.mainWallet && (
                 <div className="flex items-center justify-between gap-3">
@@ -1453,7 +1463,7 @@ export function HyperliquidWalletConnect({
                 </span>
               </div>
               {complete && state.mainWallet && (
-                <div className="flex items-center justify-between gap-3 border-t border-[rgba(26,24,19,0.14)] pt-2">
+                <div className="flex items-center justify-between gap-3 border-t border-[rgba(25,36,52,0.14)] pt-2">
                   <span className="text-nofx-text-muted">
                     {text.agentExpiry}
                   </span>
@@ -1597,7 +1607,7 @@ export function HyperliquidWalletConnect({
               )}
             </div>
 
-            <div className="flex items-center justify-between pt-2 border-t border-[rgba(26,24,19,0.14)]">
+            <div className="flex items-center justify-between pt-2 border-t border-[rgba(25,36,52,0.14)]">
               <a
                 href="https://app.hyperliquid.xyz/"
                 target="_blank"

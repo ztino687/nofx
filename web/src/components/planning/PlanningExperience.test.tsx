@@ -6,7 +6,23 @@ import { ExecutionSchedule } from './ExecutionSchedule'
 import { PlanningActivity, recordActivity } from './PlanningActivity'
 import { PlanStructures } from './PlanStructures'
 afterEach(cleanup)
-const plan = (kind: 'limit' | 'ladder' | 'twap'): Plan => ({
+
+it('shows the unfunded planning explanation as activity, not an interruption', () => {
+  const rows = recordActivity([], {
+    type: 'planning_sizing',
+    data: {
+      planning_only: true,
+      message: 'No free margin. Continuing with equity previews.',
+    },
+  })
+  render(<PlanningActivity items={rows} busy />)
+  expect(
+    screen.getByText('No free margin. Continuing with equity previews.')
+  ).toBeInTheDocument()
+  expect(rows[0].state).toBe('done')
+  expect(screen.queryByText('Planning interrupted')).toBeNull()
+})
+const plan = (kind: 'market' | 'limit' | 'ladder' | 'twap'): Plan => ({
   id: kind,
   hash: kind,
   created: new Date().toISOString(),
@@ -65,7 +81,7 @@ it('shows ladder prices without fake time staggering', () => {
   expect(screen.getAllByText('Placed together at start')).toHaveLength(2)
   expect(screen.queryByText('T+30s')).not.toBeInTheDocument()
 })
-it('shows three structure outcomes without inventing a third valid draft', () => {
+it('shows four structure outcomes without inventing missing valid drafts', () => {
   const select = vi.fn()
   render(
     <PlanStructures
@@ -89,7 +105,7 @@ it('shows three structure outcomes without inventing a third valid draft', () =>
     screen.getByText('Child order below venue minimum')
   ).toBeInTheDocument()
   expect(screen.getAllByText('Validated draft')).toHaveLength(2)
-  fireEvent.click(screen.getByRole('button', { name: 'View on chart' }))
+  fireEvent.click(screen.getByRole('button', { name: /^View on chart: limit/ }))
   expect(select).toHaveBeenCalledWith(expect.objectContaining({ id: 'limit' }))
 })
 const event = (type: string, data: Record<string, unknown>): PlanningEvent => ({
@@ -110,7 +126,8 @@ it('updates a live task row with actual timeframe, candle count and measured dur
       ok: true,
       interval: '1h',
       count: 1200,
-      scope: 'Visible range',
+      target_count: 1200,
+      scope: 'Latest history · independent of chart view',
     }),
     4000
   )
@@ -118,7 +135,9 @@ it('updates a live task row with actual timeframe, candle count and measured dur
   expect(rows[0]).toMatchObject({ state: 'done', started: 1000, ended: 4000 })
   render(<PlanningActivity items={rows} busy={false} />)
   expect(
-    screen.getByText('1h · 1200 candles · Visible range')
+    screen.getByText(
+      '1h · 1200 / 1200 candles · Latest history · independent of chart view'
+    )
   ).toBeInTheDocument()
   expect(screen.getByText('3s')).toBeInTheDocument()
 })
@@ -177,4 +196,83 @@ it('updates plugin observations without duplicate rows and identifies cancellati
   expect(rows.find((row) => row.id === 'outcome')?.label).toBe(
     'Planning stopped'
   )
+})
+
+it('puts market first regardless of model order and labels the estimate', () => {
+  const select = vi.fn()
+  render(
+    <PlanStructures
+      checks={[
+        { id: 'market', kind: 'market', name: 'Market', status: 'saved' },
+      ]}
+      plans={[plan('twap'), plan('limit'), plan('market'), plan('ladder')]}
+      selected=""
+      busy={false}
+      onSelect={select}
+    />
+  )
+  const cards = screen.getAllByRole('article')
+  expect(cards).toHaveLength(4)
+  expect(cards[0]).toHaveTextContent('Market')
+  expect(cards[1]).toHaveTextContent('Single limit')
+  expect(cards[2]).toHaveTextContent('Weighted ladder')
+  expect(cards[3]).toHaveTextContent('TWAP')
+  expect(cards[0]).toHaveTextContent('Est. entry')
+  expect(cards[0]).toHaveTextContent('Actual fill may differ')
+  fireEvent.click(
+    screen.getByRole('button', { name: /^View on chart: market/ })
+  )
+  expect(select).toHaveBeenCalledWith(expect.objectContaining({ id: 'market' }))
+})
+it('does not mislabel immediate market entry as a ladder or timed schedule', () => {
+  const { container } = render(<ExecutionSchedule plan={plan('market')} />)
+  expect(container).toBeEmptyDOMElement()
+})
+
+it('updates paginated history progress and discloses a newly listed market with limited history', () => {
+  let rows = recordActivity(
+    [],
+    event('tool_start', { id: 'context', name: 'get_candles' }),
+    1000
+  )
+  rows = recordActivity(
+    rows,
+    event('tool_progress', {
+      id: 'context',
+      name: 'get_candles',
+      interval: '1h',
+      count: 300,
+      target_count: 1200,
+      scope: 'Latest history',
+    }),
+    2000
+  )
+  expect(rows).toHaveLength(1)
+  expect(rows[0]).toMatchObject({
+    state: 'running',
+    started: 1000,
+    detail: '1h · 300 / 1200 candles · Latest history',
+  })
+  rows = recordActivity(
+    rows,
+    event('tool_result', {
+      id: 'context',
+      name: 'get_candles',
+      interval: '1h',
+      count: 345,
+      target_count: 1200,
+      scope: 'Latest history',
+      truncated: true,
+      ok: true,
+    }),
+    3000
+  )
+  expect(rows).toHaveLength(1)
+  expect(rows[0]).toMatchObject({
+    state: 'done',
+    started: 1000,
+    ended: 3000,
+    detail:
+      '1h · 345 / 1200 candles · Limited exchange history · Latest history',
+  })
 })

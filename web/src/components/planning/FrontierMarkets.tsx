@@ -169,7 +169,8 @@ export function FrontierMarkets({
               >
                 <b>{m.symbol}</b>
                 <small>
-                  {volume(m.volume_24h)} {venue === 'binance' ? 'USDT' : 'USD'}
+                  {volume(m.volume_24h)}{' '}
+                  {venue === 'hyperliquid' ? 'USD' : 'USDT'}
                 </small>
                 {!m.execution_supported && <small>Chart only</small>}
               </button>
@@ -205,9 +206,7 @@ export function FrontierMarkets({
             </small>
           )}
           {!!current?.warnings?.length && (
-            <small role="status">
-              {current.warnings.join(' · ')}. Some markets may be missing.
-            </small>
+            <small role="status">{current.warnings.join(' · ')}</small>
           )}
         </>
       )}

@@ -39,7 +39,7 @@ func IntervalSeconds(interval string) int64 {
 	return map[string]int64{"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400}[interval]
 }
 func (q CandleQuery) Validate() error {
-	if (q.Venue != "binance" && q.Venue != "okx" && q.Venue != "hyperliquid") || !symbolOK(q.Symbol) || IntervalSeconds(q.Interval) == 0 {
+	if (q.Venue != "binance" && q.Venue != "okx" && q.Venue != "bitget" && q.Venue != "hyperliquid") || !symbolOK(q.Symbol) || IntervalSeconds(q.Interval) == 0 {
 		return errors.New("invalid chart venue, symbol or interval")
 	}
 	if q.Limit < 1 || q.Limit > 300 || q.From < 0 || q.To < 0 || q.To > time.Now().Add(time.Minute).Unix() || (q.From > 0 && q.To > 0 && q.From >= q.To) {
@@ -107,6 +107,12 @@ func (c *Client) Candles(ctx context.Context, q CandleQuery) ([]Candle, error) {
 				}
 			}
 			rows = append(rows, Candle{ms / 1000, core.Decimal(fields[0]), core.Decimal(fields[1]), core.Decimal(fields[2]), core.Decimal(fields[3]), core.Decimal(fields[4])})
+		}
+	case "bitget":
+		var e error
+		rows, e = c.bitgetCandles(ctx, q)
+		if e != nil {
+			return nil, e
 		}
 	case "okx":
 		bar := map[string]string{"1m": "1m", "5m": "5m", "15m": "15m", "1h": "1H", "4h": "4H", "1d": "1Dutc"}[q.Interval]

@@ -329,6 +329,19 @@
   letter-spacing: -0.4px;
   font-variant-numeric: tabular-nums;
 }
+.config-account-available {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 16px 14px;
+  color: #697660;
+  font-size: 12px;
+}
+.config-account-error {
+  padding: 0 16px 14px;
+  color: #a24637;
+  font-size: 12px;
+}
 .config-address {
   display: flex;
   align-items: center;

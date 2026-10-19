@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   states: vi.fn(),
   update: vi.fn(),
   launch: vi.fn(),
+  createExchange: vi.fn(),
 }))
 vi.mock('../../contexts/AuthContext', () => ({
   useAuth: () => ({ user: mocks.user, token: 'fixture' }),
@@ -33,6 +34,7 @@ vi.mock('../../lib/api', () => ({
     getSupportedModels: async () => [],
     updateModelConfigs: mocks.update,
     createTrader: mocks.update,
+    createExchangeEncrypted: mocks.createExchange,
   },
 }))
 vi.mock('./AutopilotLaunchPanel', () => ({
@@ -52,8 +54,27 @@ vi.mock('./ModelConfigModal', () => ({
   ),
 }))
 vi.mock('./ExchangeConfigModal', () => ({
-  ExchangeConfigModal: ({ onClose }: { onClose: () => void }) => (
+  ExchangeConfigModal: ({
+    onClose,
+    onSave,
+  }: {
+    onClose: () => void
+    onSave: (...args: unknown[]) => Promise<void>
+  }) => (
     <div role="dialog" aria-label="Trading account">
+      <button
+        onClick={() =>
+          void onSave(
+            null,
+            'binance',
+            'New account',
+            'fixture-key',
+            'fixture-secret'
+          )
+        }
+      >
+        Save account
+      </button>
       <button onClick={onClose}>Close</button>
     </div>
   ),
@@ -97,8 +118,8 @@ it('starts with connections without mounting automated launch or writing configu
     await screen.findByRole('button', { name: 'Edit My AI' })
   ).toBeVisible()
   expect(screen.getByRole('button', { name: 'Edit My account' })).toBeVisible()
-  expect(screen.getByText('Not checked')).toBeVisible()
-  expect(screen.getByText('Not available')).toBeVisible()
+  expect(screen.getByText('Verification needed')).toBeVisible()
+  expect(screen.getByText('Not verified')).toBeVisible()
   expect(screen.queryByText(/Telegram|Notifications/)).toBeNull()
   expect(mocks.launch).not.toHaveBeenCalled()
   expect(mocks.update).not.toHaveBeenCalled()
@@ -145,7 +166,7 @@ it('keeps disabled saved AI connections editable and treats failed balances as u
     await screen.findByRole('button', { name: 'Edit Disabled AI' })
   ).toBeVisible()
   expect(screen.getByText('Disabled')).toBeVisible()
-  expect(screen.getByText('Not available')).toBeVisible()
+  expect(screen.getByText('Not verified')).toBeVisible()
   expect(mocks.update).not.toHaveBeenCalled()
 })
 it('shows a read failure instead of inventing an empty successful configuration', async () => {
@@ -157,4 +178,63 @@ it('shows a read failure instead of inventing an empty successful configuration'
     )
   )
   expect(mocks.update).not.toHaveBeenCalled()
+})
+
+it('verifies a newly saved account automatically and shows balance once with its currency', async () => {
+  open()
+  await screen.findByRole('button', { name: 'Edit My account' })
+  mocks.states.mockResolvedValue({
+    states: {
+      exchange: {
+        exchange_id: 'exchange',
+        status: 'ok',
+        display_balance: '321.9725 USDT',
+        asset: 'USDT',
+        available_balance: 300.5,
+      },
+    },
+  })
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Add account', exact: true })
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Save account' }))
+  expect(await screen.findByText('Connected')).toBeVisible()
+  expect(screen.getByText('321.97 USDT')).toBeVisible()
+  expect(screen.getByText('300.50 USDT')).toBeVisible()
+  expect(mocks.states).toHaveBeenCalledTimes(2)
+  expect(mocks.createExchange).toHaveBeenCalledTimes(1)
+  expect(mocks.launch).not.toHaveBeenCalled()
+})
+it('offers a read-only retry after account verification fails', async () => {
+  mocks.states.mockRejectedValueOnce(new Error('timeout'))
+  open()
+  expect(await screen.findByText('Verification unavailable')).toBeVisible()
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    'Your connection is saved'
+  )
+  mocks.states.mockResolvedValue({
+    states: {
+      exchange: {
+        status: 'permission_denied',
+        error_message: 'Check Futures permissions and IP allowlist',
+      },
+    },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Verify connection' }))
+  expect(await screen.findByText('Check permissions')).toBeVisible()
+  expect(
+    screen.getByText('Check Futures permissions and IP allowlist')
+  ).toBeVisible()
+  expect(mocks.update).not.toHaveBeenCalled()
+  expect(mocks.launch).not.toHaveBeenCalled()
+})
+it('waits for saved connections before allowing a new AI wallet or account setup', () => {
+  mocks.models.mockReturnValueOnce(new Promise(() => {}))
+  open()
+  expect(
+    screen.getByRole('button', { name: 'Add AI', exact: true })
+  ).toBeDisabled()
+  expect(
+    screen.getByRole('button', { name: 'Add account', exact: true })
+  ).toBeDisabled()
 })
