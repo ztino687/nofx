@@ -105,11 +105,15 @@ export function TradingPlanningPage() {
     [exchangeID, setExchangeID] = useState(''),
     [modelID, setModelID] = useState('')
   const [venue, setVenue] = useState('binance')
+  const [ai500Symbols, setAI500Symbols] = useState<string[]>([])
   const requestedVenue = useRef('binance')
   const marketChosen = useRef(false)
   const [symbol, setSymbol] = useState('BTCUSDT'),
     [symbolInput, setSymbolInput] = useState('BTCUSDT'),
     [limits, setLimits] = useState<Constraints>(defaultLimits)
+  const marketGroup =
+    venue === 'binance' && ai500Symbols.includes(symbol) ? 'ai500' : undefined
+  const entryPolicy = marketGroup ? 'ai500_trend_long' : undefined
   const [data, setData] = useState<PlanningState>({
       records: {},
       accounts: {},
@@ -590,6 +594,7 @@ export function TradingPlanningPage() {
     const controller = new AbortController()
     abort.current = controller
     let streamStarted = false
+    let waiting = false
     let preferredPlan: Plan | undefined
     try {
       await streamPlanning(
@@ -602,6 +607,7 @@ export function TradingPlanningPage() {
           visible_from: context.visible_from,
           visible_to: context.visible_to,
           message: text,
+          market_group: marketGroup,
           plan_id: revisionID,
           execution_kind: 'auto',
           compare_structures: compareStructures,
@@ -609,7 +615,7 @@ export function TradingPlanningPage() {
           session_id: session.current,
           turn_id: generation.id,
           history: historyMessages,
-          constraints: { ...limits, leverage },
+          constraints: { ...limits, leverage, entry_policy: entryPolicy },
           auto_size: Boolean(exchangeID),
         },
         controller.signal,
@@ -632,10 +638,16 @@ export function TradingPlanningPage() {
             setStatus(
               `Planning round ${event.data.round} of ${event.data.max_rounds}`
             )
-          if (event.type === 'outcome' && Number(event.data.drafts) === 0)
+          if (event.type === 'outcome' && Number(event.data.drafts) === 0) {
             setStatus(
               'Planning completed without a validated draft. Review the explanation.'
             )
+            if (waiting && event.data.stop_reason === 'completed') {
+              rememberBatch({ ...generation, waiting: true }, batchKey)
+              setSelected('')
+              setCompare([])
+            }
+          }
           const mergeChecks = (incoming: PlanCheck[]) =>
             setChecks((previous) => {
               const merged = new Map(previous.map((check) => [check.id, check]))
@@ -645,8 +657,23 @@ export function TradingPlanningPage() {
           if (event.type === 'candidate_result')
             mergeChecks([event.data as unknown as PlanCheck])
           if (event.type === 'plans') {
-            if (Array.isArray(event.data.checks))
+            waiting = event.data.waiting === true
+            if (Array.isArray(event.data.checks)) {
               mergeChecks(event.data.checks as PlanCheck[])
+              const deferred = new Map(
+                (generation.deferred || []).map((entry) => [entry.kind, entry])
+              )
+              for (const check of event.data.checks as PlanCheck[]) {
+                if (check.status === 'deferred' && check.reason)
+                  deferred.set(check.kind, {
+                    kind: check.kind,
+                    reason: check.reason,
+                  })
+                else if (check.status === 'saved' || check.status === 'reused')
+                  deferred.delete(check.kind)
+              }
+              generation.deferred = [...deferred.values()]
+            }
             const plans = (event.data.plans as Plan[])
               ?.slice()
               .sort(
@@ -676,6 +703,8 @@ export function TradingPlanningPage() {
               setSelected(preferredPlan.id)
 
               setCompare([])
+            } else if (generation.ids.length) {
+              rememberBatch({ ...generation }, batchKey)
             }
             reload().catch(() => {})
           }
@@ -757,10 +786,12 @@ export function TradingPlanningPage() {
         venue,
         symbol,
         idea: plan.idea,
+        market_group: marketGroup,
         constraints: {
           ...plan.constraints,
           leverage,
           min_reward_risk: limits.min_reward_risk,
+          entry_policy: plan.constraints.entry_policy || entryPolicy,
         },
         auto_size: true,
       })
@@ -872,7 +903,8 @@ export function TradingPlanningPage() {
         venue,
         symbol,
         idea,
-        constraints: { ...limits, leverage },
+        market_group: marketGroup,
+        constraints: { ...limits, leverage, entry_policy: entryPolicy },
         auto_size: Boolean(exchangeID),
       })
       setBuilder(false)
@@ -897,7 +929,24 @@ export function TradingPlanningPage() {
     setError('')
     setOrderNotice('')
   }
-  const deckPlans = batchPlans(records, currentBatch)
+  const outsideEntryPolicy = (plan: Plan) =>
+    (entryPolicy === 'ai500_trend_long' ||
+      plan.constraints.entry_policy === 'ai500_trend_long') &&
+    plan.idea.side !== 'long'
+  const deckPlans = batchPlans(records, currentBatch).filter(
+    (plan) => !outsideEntryPolicy(plan)
+  )
+  const waitingForEntry = currentBatch?.waiting && !planningBusy
+  const entryChecks =
+    checks.length || planningBusy
+      ? checks
+      : (currentBatch?.deferred || []).map((entry) => ({
+          id: `deferred_${entry.kind}`,
+          kind: entry.kind,
+          name: 'Wait for entry conditions',
+          status: 'deferred',
+          reason: entry.reason,
+        }))
   const comparisonPlans = comparablePlans(deckPlans, clock)
   const archivedRecords = records.filter(
     (r) => !deckPlans.some((p) => p.id === r.plan.id)
@@ -907,6 +956,7 @@ export function TradingPlanningPage() {
       key={r.plan.id}
       className={'planning-card ' + (selected === r.plan.id ? 'selected' : '')}
       onClick={() => choose(r.plan)}
+      disabled={r.state === 'draft' && outsideEntryPolicy(r.plan)}
     >
       <span
         className={r.plan.idea.side === 'long' ? 'target-text' : 'stop-text'}
@@ -934,9 +984,11 @@ export function TradingPlanningPage() {
         </span>
       </div>
       <small>
-        {expired(r.plan, clock) && r.state === 'draft'
-          ? 'Expired · replan'
-          : states[r.state] || r.state}
+        {r.state === 'draft' && outsideEntryPolicy(r.plan)
+          ? 'Outside AI500 long-only policy · generate a new plan'
+          : expired(r.plan, clock) && r.state === 'draft'
+            ? 'Expired · replan'
+            : states[r.state] || r.state}
       </small>
     </button>
   )
@@ -1062,6 +1114,7 @@ export function TradingPlanningPage() {
           walletChecking={walletState === 'checking'}
           onSetup={() => setSetupOpen('ai')}
           onSelect={openMarket}
+          onAI500Markets={setAI500Symbols}
         />
       }
       {blockingRun && (
@@ -1177,18 +1230,26 @@ export function TradingPlanningPage() {
             <div className="frontier-deck-heading">
               <div>
                 <h2>
-                  {currentBatch
-                    ? 'Your latest plans'
-                    : deckPlans.length
-                      ? 'Saved idea'
-                      : 'Choose your entry'}
+                  {waitingForEntry
+                    ? 'Waiting for an entry'
+                    : currentBatch
+                      ? 'Your latest plans'
+                      : deckPlans.length
+                        ? 'Saved idea'
+                        : 'Choose your entry'}
                 </h2>
                 <p>
-                  {currentBatch
-                    ? `Generated together · ${new Date(currentBatch.created).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}. `
-                    : 'Older drafts are in history below. '}
-                  Review updates the selected plan with current prices and
-                  funds.
+                  {waitingForEntry ? (
+                    'No new entry selected. See the assistant’s explanation and conditions to watch.'
+                  ) : (
+                    <>
+                      {currentBatch
+                        ? `Generated together · ${new Date(currentBatch.created).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}. `
+                        : 'Older drafts are in history below. '}
+                      Review updates the selected plan with current prices and
+                      funds.
+                    </>
+                  )}
                 </p>
               </div>
               <span>
@@ -1196,7 +1257,7 @@ export function TradingPlanningPage() {
               </span>
             </div>
             <PlanStructures
-              checks={checks}
+              checks={entryChecks}
               showAllTypes={Boolean(currentBatch)}
               plans={deckPlans}
               busy={planningBusy}
@@ -1207,12 +1268,15 @@ export function TradingPlanningPage() {
               connected={Boolean(exchangeID)}
               now={clock}
             />
-            {!deckPlans.length && !planningBusy && !checks.length && (
-              <p className="frontier-deck-empty">
-                Generate plans to compare market, limit, ladder and TWAP entries
-                here.
-              </p>
-            )}
+            {!deckPlans.length &&
+              !planningBusy &&
+              !entryChecks.length &&
+              !waitingForEntry && (
+                <p className="frontier-deck-empty">
+                  Generate plans to compare market, limit, ladder and TWAP
+                  entries here.
+                </p>
+              )}
             {archivedRecords.length > 0 && (
               <details className="planning-all-plans">
                 <summary>Plan history · {archivedRecords.length}</summary>
@@ -1326,6 +1390,7 @@ export function TradingPlanningPage() {
                       | 'available_margin'
                       | 'sizing_policy'
                       | 'planning_only'
+                      | 'entry_policy'
                     >[]
                   )
                     .filter(
@@ -1479,7 +1544,8 @@ export function TradingPlanningPage() {
               showSection('plans')
             }}
           >
-            View entry plans <span>{deckPlans.length} →</span>
+            {waitingForEntry ? 'View entry conditions' : 'View entry plans'}{' '}
+            <span>{waitingForEntry ? '→' : `${deckPlans.length} →`}</span>
           </a>
           {busy && (
             <div className="planning-progress" role="status" aria-live="polite">

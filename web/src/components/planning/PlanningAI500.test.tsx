@@ -19,7 +19,15 @@ describe('paid AI500 board', () => {
       fetched_at: new Date().toISOString(),
     })
     const select = vi.fn()
-    render(<PlanningAI500 venue="binance" disabled={false} onSelect={select} />)
+    const markets = vi.fn()
+    render(
+      <PlanningAI500
+        venue="binance"
+        disabled={false}
+        onSelect={select}
+        onMarkets={markets}
+      />
+    )
     await screen.findByRole('button', { name: /ETH/ })
     fireEvent.change(screen.getByLabelText('Search AI500'), {
       target: { value: 'eth' },
@@ -28,6 +36,10 @@ describe('paid AI500 board', () => {
     fireEvent.click(screen.getByRole('button', { name: /ETH/ }))
     expect(select).toHaveBeenCalledWith('ETHUSDT')
     expect(mocks.api).toHaveBeenCalledTimes(1)
+    expect(markets).toHaveBeenCalledWith(['BTCUSDT', 'ETHUSDT', 'XMRUSDT'])
+    expect(
+      screen.getByText('Long entries · market or pullback opportunities')
+    ).toBeVisible()
   })
   it('does not buy AI500 when using a Hyperliquid chart', () => {
     render(

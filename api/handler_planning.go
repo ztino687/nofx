@@ -331,6 +331,7 @@ func (s *Server) handlePlanningCompile(c *gin.Context) {
 		ExchangeID  string           `json:"exchange_id"`
 		Venue       string           `json:"venue"`
 		Symbol      string           `json:"symbol"`
+		MarketGroup string           `json:"market_group,omitempty"`
 		Idea        core.Idea        `json:"idea"`
 		Constraints core.Constraints `json:"constraints"`
 		AutoSize    bool             `json:"auto_size"`
@@ -350,6 +351,11 @@ func (s *Server) handlePlanningCompile(c *gin.Context) {
 		planningError(c, e)
 		return
 	}
+	if in.MarketGroup != "" && (in.MarketGroup != "ai500" || ex.ExchangeType != "binance") {
+		planningError(c, errors.New("invalid planning market group"))
+		return
+	}
+	in.Constraints = p.planningEntryPolicy(c.GetString("user_id"), ex.ExchangeType, in.Symbol, in.MarketGroup, in.Constraints)
 	snapshot, e := p.source.Snapshot(c.Request.Context(), ex.ExchangeType, in.Symbol)
 	if e != nil {
 		planningError(c, e)
@@ -462,6 +468,7 @@ func (s *Server) handlePlanningChat(c *gin.Context) {
 		planningError(c, e)
 		return
 	}
+	in.Constraints = p.planningEntryPolicy(user, in.Venue, in.Symbol, in.MarketGroup, in.Constraints)
 	engine := harness.Engine{Store: ds, Market: p.source, Charts: p.source, Model: &model.NOFXAdapter{Client: client, TextTools: model.RequiresTextTools(ai.Provider, ai.CustomModelName)}, Limits: in.Constraints, Forge: forgeRegistry, Plugins: registry}
 	var preferences planning.Preferences
 	if s.store.GormDB().Where("user_id = ?", user).First(&preferences).Error == nil && preferences.Text != "" {

@@ -112,6 +112,86 @@ const event = (type: string, data: Record<string, unknown>): PlanningEvent => ({
   type,
   data,
 })
+
+it('shows deferred entry types alongside valid pullback drafts without offering orders for them', () => {
+  const review = vi.fn()
+  render(
+    <PlanStructures
+      checks={[
+        {
+          id: 'wait-market',
+          kind: 'market',
+          name: 'Market',
+          status: 'deferred',
+          reason: 'Immediate entry is extended; reassess after a pullback.',
+        },
+        {
+          id: 'wait-twap',
+          kind: 'twap',
+          name: 'TWAP',
+          status: 'deferred',
+          reason: 'Timed releases cannot confirm a retest.',
+        },
+      ]}
+      plans={[plan('limit'), plan('ladder')]}
+      busy={false}
+      selected=""
+      onSelect={vi.fn()}
+      onReview={review}
+    />
+  )
+  expect(screen.getAllByRole('article')).toHaveLength(4)
+  expect(screen.getAllByText('Wait for entry')).toHaveLength(2)
+  expect(screen.getAllByText('Validated draft')).toHaveLength(2)
+  expect(
+    screen.getByText('Timed releases cannot confirm a retest.')
+  ).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Review Market' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Review TWAP' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Review Single limit' }))
+  expect(review).toHaveBeenCalledWith(expect.objectContaining({ id: 'limit' }))
+})
+
+it('reports a completed wait decision without claiming drafts were saved or awaiting approval', () => {
+  const checks = ['market', 'limit', 'ladder', 'twap'].map((kind) => ({
+    id: kind,
+    kind,
+    name: kind,
+    status: 'deferred',
+    reason: 'Reassess after the broader trend recovers.',
+  }))
+  let rows = checks.reduce(
+    (items, check) => recordActivity(items, event('candidate_result', check)),
+    [] as ReturnType<typeof recordActivity>
+  )
+  rows = recordActivity(
+    rows,
+    event('plans', { plans: [], checks, rejected: [], waiting: true })
+  )
+  rows = recordActivity(
+    rows,
+    event('outcome', { drafts: 0, waiting: true, stop_reason: 'completed' })
+  )
+  expect(rows.every((row) => row.state === 'done')).toBe(true)
+  expect(rows.at(-1)).toMatchObject({
+    label: 'Waiting for an entry',
+    detail: 'No order to approve. Review the entry conditions below.',
+  })
+  expect(
+    rows.some((row) =>
+      /Save validated|awaiting your review|Passed mathematical/.test(
+        row.label + row.detail
+      )
+    )
+  ).toBe(false)
+  expect(
+    recordActivity(
+      [],
+      event('outcome', { drafts: 0, stop_reason: 'completed' })
+    )[0].detail
+  ).not.toContain('awaiting your review')
+})
+
 it('updates a live task row with actual timeframe, candle count and measured duration', () => {
   let rows = recordActivity(
     [],

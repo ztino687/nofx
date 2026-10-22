@@ -147,6 +147,7 @@ func (s Snapshot) Validate(now time.Time) error {
 }
 
 type Constraints struct {
+	EntryPolicy     string  `json:"entry_policy,omitempty"`
 	PlanningOnly    bool    `json:"planning_only,omitempty"`
 	SizingPolicy    string  `json:"sizing_policy,omitempty"`
 	Leverage        int     `json:"leverage,omitempty"`
@@ -162,6 +163,8 @@ type Constraints struct {
 // An omitted policy preserves the calculation and execution checks of saved plans.
 const SizingAccountMargin = "account_margin"
 
+const EntryAI500TrendLong = "ai500_trend_long"
+
 func (c Constraints) EffectiveLeverage() int {
 	if c.Leverage == 0 {
 		return 1
@@ -170,6 +173,9 @@ func (c Constraints) EffectiveLeverage() int {
 }
 
 func (c Constraints) Validate() error {
+	if c.EntryPolicy != "" && c.EntryPolicy != EntryAI500TrendLong {
+		return errors.New("unsupported entry policy")
+	}
 	if c.SizingPolicy != "" && c.SizingPolicy != SizingAccountMargin {
 		return errors.New("unsupported sizing policy")
 	}
@@ -247,6 +253,9 @@ func sizeByLimits(c Constraints, risk, budget, liquidity *big.Rat) (*big.Rat, st
 	return quantity, limit
 }
 func Compile(s Snapshot, c Constraints, i Idea, now time.Time) (Plan, error) {
+	if c.EntryPolicy == EntryAI500TrendLong && i.Side != "long" {
+		return Plan{}, errors.New("AI500 plans are long-only. Look for a trend-following long entry or wait; short entries are not allowed.")
+	}
 	if i.Execution != nil {
 		return compileExecution(s, c, i, now)
 	}

@@ -57,6 +57,12 @@ type proposalState struct {
 	saved    map[string]string
 	count    int
 	revised  bool
+	wait     bool
+}
+
+type deferredEntry struct {
+	Kind   string `json:"kind"`
+	Reason string `json:"reason"`
 }
 
 type Input struct {
@@ -74,12 +80,16 @@ type Input struct {
 	History           []History                `json:"history"`
 	Venue             string                   `json:"venue"`
 	Symbol            string                   `json:"symbol"`
+	MarketGroup       string                   `json:"market_group,omitempty"`
 	Interval          string                   `json:"interval"`
 	PlanID            string                   `json:"plan_id,omitempty"`
 	Drawings          []Drawing                `json:"drawings,omitempty"`
 }
 
 func (i Input) Validate() error {
+	if i.MarketGroup != "" && (i.MarketGroup != "ai500" || i.Venue != "binance") {
+		return errors.New("invalid planning market group")
+	}
 	if i.PluginWindow != "" && i.PluginWindow != "7d" && i.PluginWindow != "30d" {
 		return errors.New("invalid plugin window")
 	}
@@ -158,6 +168,7 @@ func object(properties map[string]any, required ...string) any {
 func Tools() []model.Tool {
 	text := map[string]any{"type": "string"}
 	idea := object(map[string]any{"name": text, "side": map[string]any{"type": "string", "enum": []string{"long", "short"}}, "entry": text, "stop": text, "target": text, "rationale": text, "execution": object(map[string]any{"kind": map[string]any{"type": "string", "enum": []string{"market", "limit", "ladder", "twap"}}, "levels": map[string]any{"type": "array", "items": object(map[string]any{"price": text, "weight": text}, "price", "weight"), "minItems": 2, "maxItems": 8}, "slices": map[string]any{"type": "integer", "minimum": 2, "maximum": 24}, "interval_seconds": map[string]any{"type": "integer", "minimum": 5, "maximum": 300}}, "kind")}, "name", "side", "entry", "stop", "target", "rationale", "execution")
+	deferred := object(map[string]any{"kind": map[string]any{"type": "string", "enum": []string{"market", "limit", "ladder", "twap"}}, "reason": map[string]any{"type": "string", "minLength": 1, "maxLength": 500}}, "kind", "reason")
 	point := object(map[string]any{"time": map[string]any{"type": "integer"}, "price": text}, "time", "price")
 	drawing := object(map[string]any{"kind": map[string]any{"type": "string", "enum": []string{"horizontal_line", "trend_line", "rectangle"}}, "label": text, "points": map[string]any{"type": "array", "items": point, "minItems": 1, "maxItems": 2}}, "kind", "label", "points")
 	specs := []struct {
@@ -166,7 +177,7 @@ func Tools() []model.Tool {
 	}{
 		{"get_market", "Read a fresh public book and instrument rules for this workspace.", object(map[string]any{})},
 		{"get_candles", "Read up to 300 OHLCV candles at a specified timeframe and optional historical range; workspace venue/symbol stay fixed.", object(map[string]any{"interval": map[string]any{"type": "string", "enum": []string{"1m", "5m", "15m", "1h", "4h", "1d"}}, "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 300}, "from": map[string]any{"type": "integer"}, "to": map[string]any{"type": "integer"}})},
-		{"propose_plans", "Compile up to five one-time hypotheses using a FRESH book and locked risk limits. Saves DRAFTS only; replaces the selected draft if any. Up to five unique saved drafts per turn within the existing round/tool budget. Keep accepted drafts and correct rejected structures within the same turn without relaxing constraints.", object(map[string]any{"ideas": map[string]any{"type": "array", "items": idea, "maxItems": 5}}, "ideas")},
+		{"propose_plans", "Compile justified entry hypotheses using a FRESH book and locked risk limits. Saves DRAFTS only; replaces the selected draft if any. Up to five unique drafts per turn. For each unsuitable entry type, include deferred={kind,reason} explaining why and what would need to change. Deferred entries are assessments, never orders. A comparison can mix valid ideas and deferred entry types; do not withhold a limit/ladder just because a market entry is unsuitable. Keep accepted drafts and correct rejected structures without relaxing constraints.", object(map[string]any{"ideas": map[string]any{"type": "array", "items": idea, "maxItems": 5}, "deferred": map[string]any{"type": "array", "items": deferred, "maxItems": 4}}, "ideas")},
 		{"draw_chart", "Add up to ten advisory horizontal lines, trend lines or rectangles on the workspace chart. Times are Unix seconds, prices are decimal strings. Cannot change plan/order prices.", object(map[string]any{"drawings": map[string]any{"type": "array", "items": drawing, "maxItems": 10}}, "drawings")},
 	}
 	tools := make([]model.Tool, 0, len(specs))
@@ -229,11 +240,26 @@ func (e *Engine) Run(ctx context.Context, input Input, emit Emit) error {
 	if e.Limits.PlanningOnly {
 		limits = e.Limits
 	}
+	// Preserve a saved entry policy through fresh account sizing, and apply the
+	// current AI500 context when revising an older unrestricted draft.
+	if input.MarketGroup == "ai500" || e.Limits.EntryPolicy == core.EntryAI500TrendLong ||
+		(selected != nil && selected.Plan.Constraints.EntryPolicy == core.EntryAI500TrendLong) {
+		limits.EntryPolicy = core.EntryAI500TrendLong
+	}
 	budget, err := e.Budget.normalized()
 	if err != nil {
 		return err
 	}
 	messages := []model.Message{{Role: "system", Content: systemPrompt}}
+	if limits.EntryPolicy == core.EntryAI500TrendLong {
+		const policy = `AI500 policy: look only for trend-following LONG entries; never propose a short or fade a rally because price looks high or overbought. Separate the broader trend from entry timing. Assess the supplied primary and higher-timeframe candles; AI500 membership alone is not trend evidence. A short-term pullback, consolidation, volatility, nearby resistance or lack of a fresh higher low does not by itself invalidate a broader uptrend or require every timeframe to agree. When the broader uptrend remains intact, actively evaluate supported long entries at observed levels even if chasing at market is unattractive.
+Assess market, limit, ladder and TWAP independently. Market may be deferred while a buy limit at support, a weighted pullback ladder or fixed-cap TWAP is feasible. Submit justified drafts to propose_plans and let the compiler calculate size and costs. Use deferred entries with a concrete reason and condition to watch for types that are not justified. For a four-way comparison, account for each type through ideas or deferred; do not return an unexplained empty comparison. If the broader uptrend has broken, data is insufficient, or no supported entry is justified, defer all four and explain why. Do not invent favorable prices, force trades or loosen limits to fill cards.
+A draft is planning, not an instruction to enter immediately. Distinguish price-only resting orders from confirmation-dependent watch conditions: a buy limit fills on price, a ladder releases all levels at start, and TWAP uses a fixed limit cap. These orders cannot wait for a future candle close, a successful retest or renewed upward momentum. If such confirmation is essential, describe it in deferred and ask for reassessment after it occurs; never disguise it as an executable limit or invent a breakout trigger. This policy remains in force for revisions and generated calculators.`
+		messages = append(messages, model.Message{Role: "system", Content: policy})
+		if err := emit(Event{"entry_policy", map[string]any{"policy": limits.EntryPolicy, "message": "AI500 · Long entries only. Evaluate market, pullback limits, ladders and TWAP separately; explain any entry that needs to wait."}}); err != nil {
+			return err
+		}
+	}
 	if limits.PlanningOnly {
 		notice := "No free margin is available. Planning continues using account equity as a reference; these are comparison drafts, not funded orders. Refresh and review with available margin before trading."
 		if err := emit(Event{"planning_sizing", map[string]any{"planning_only": true, "equity": limits.Equity, "available_margin": limits.AvailableMargin, "message": notice}}); err != nil {
@@ -323,7 +349,7 @@ func (e *Engine) Run(ctx context.Context, input Input, emit Emit) error {
 		}
 		messages = append(messages, answer)
 		if len(answer.ToolCalls) == 0 {
-			if input.CompareStructures && completionPrompts < 2 {
+			if input.CompareStructures && !input.proposals.wait && completionPrompts < 2 {
 				missing := []string{}
 				for _, kind := range []string{"market", "limit", "ladder", "twap"} {
 					if !assessed[kind] {
@@ -385,6 +411,7 @@ func (e *Engine) Run(ctx context.Context, input Input, emit Emit) error {
 				}
 				resultState.Drafts += len(data["plans"].([]core.Plan))
 				resultState.Rejections = append(resultState.Rejections, data["rejected"].([]string)...)
+				resultState.Waiting = data["waiting"] == true
 			}
 			if toolErr != nil {
 				result = map[string]string{"error": toolErr.Error()}
@@ -490,7 +517,8 @@ func (e *Engine) invoke(ctx context.Context, input Input, limits core.Constraint
 		state.attempts++
 
 		var args struct {
-			Ideas *[]core.Idea `json:"ideas"`
+			Ideas    *[]core.Idea    `json:"ideas"`
+			Deferred []deferredEntry `json:"deferred"`
 		}
 		if err := strict(call.Function.Arguments, &args); err != nil {
 			return nil, err
@@ -500,6 +528,28 @@ func (e *Engine) invoke(ctx context.Context, input Input, limits core.Constraint
 		}
 		if len(*args.Ideas) > 5 {
 			return nil, errors.New("too many candidate ideas")
+		}
+		deferredKinds := map[string]bool{}
+		if len(args.Deferred) > 4 {
+			return nil, errors.New("too many deferred entry types")
+		}
+		for _, entry := range args.Deferred {
+			if (entry.Kind != "market" && entry.Kind != "limit" && entry.Kind != "ladder" && entry.Kind != "twap") || deferredKinds[entry.Kind] || strings.TrimSpace(entry.Reason) == "" || len([]rune(entry.Reason)) > 500 || HasCredential(entry.Reason) {
+				return nil, errors.New("each deferred entry needs a unique supported kind and a short non-sensitive reason")
+			}
+			deferredKinds[entry.Kind] = true
+		}
+		for _, idea := range *args.Ideas {
+			kind := "limit"
+			if idea.Execution != nil {
+				kind = idea.Execution.Kind
+			}
+			if deferredKinds[kind] {
+				return nil, errors.New("an entry type cannot be both proposed and deferred in the same assessment")
+			}
+		}
+		if limits.EntryPolicy == core.EntryAI500TrendLong && input.CompareStructures && len(*args.Ideas) == 0 && state.count == 0 && len(deferredKinds) != 4 {
+			return nil, errors.New("Assess AI500 entry types independently: submit supported long ideas and/or deferred entries with a reason for market, limit, ladder and twap. An unsuitable market entry alone does not rule out a pullback limit or ladder. If none is justified, defer all four; never invent a trade.")
 		}
 		if selected != nil && selected.State != "draft" && selected.State != "approved" {
 			return nil, errors.New("active/terminal order cannot be revised; select a new planning context")
@@ -512,6 +562,13 @@ func (e *Engine) invoke(ctx context.Context, input Input, limits core.Constraint
 		plans := []core.Plan{}
 		rejected := []string{}
 		checks := []map[string]any{}
+		for index, entry := range args.Deferred {
+			check := map[string]any{"id": fmt.Sprintf("deferred_%d_%d", state.attempts, index), "name": "Wait for entry conditions", "kind": entry.Kind, "status": "deferred", "reason": strings.TrimSpace(entry.Reason)}
+			checks = append(checks, check)
+			if err := emit(Event{"candidate_result", check}); err != nil {
+				return nil, err
+			}
+		}
 		pending := map[string]string{}
 		for index, idea := range *args.Ideas {
 			generation, generated := input.Generated[encoded(idea)]
@@ -583,6 +640,7 @@ func (e *Engine) invoke(ctx context.Context, input Input, limits core.Constraint
 			state.saved[key] = id
 		}
 		state.count += len(plans)
+		state.wait = len(*args.Ideas) == 0 && state.count == 0
 		*proposed = *proposed || len(plans) > 0 || len(*args.Ideas) == 0
 		for _, check := range checks {
 			if check["status"] == "validated" {
@@ -590,6 +648,10 @@ func (e *Engine) invoke(ctx context.Context, input Input, limits core.Constraint
 			}
 		}
 		result := map[string]any{"plans": plans, "checks": checks, "rejected": rejected, "total_drafts": state.count, "approval_required": true, "no_trade": state.count == 0, "next_action": "Retain saved drafts. If a structure was rejected and the turn resource budget remains, correct only rejected candidates in this turn using unchanged risk limits. Do not repeat saved candidates or stretch targets just to clear a ratio."}
+		if state.wait {
+			result["waiting"] = true
+			result["next_action"] = "Explain why waiting is appropriate and what market conditions must improve. Do not generate entries just to fill the comparison."
+		}
 		if err := emit(Event{"plans", result}); err != nil {
 			return nil, err
 		}

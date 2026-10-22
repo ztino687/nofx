@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"net/http"
+	"nofx/planning/core"
 	"nofx/planning/instrument"
 	"nofx/planning/plugins"
 	"nofx/provider/nofxos"
@@ -73,6 +74,35 @@ type planningAI500Cache struct {
 	coins []nofxos.CoinData
 	at    time.Time
 	err   error
+}
+
+// Reuse only this user's already purchased board. Planning must not purchase
+// additional data or fetch the unpaid origin to determine the entry policy.
+func (p *planningServices) planningEntryPolicy(user, venue, symbol, group string, limits core.Constraints) core.Constraints {
+	if venue != "binance" {
+		return limits
+	}
+	if group == "ai500" {
+		limits.EntryPolicy = core.EntryAI500TrendLong
+		return limits
+	}
+	value, ok := p.ai500.Load(user)
+	if !ok {
+		return limits
+	}
+	cached := value.(*planningAI500Cache)
+	cached.mu.Lock()
+	defer cached.mu.Unlock()
+	if cached.err != nil || cached.at.IsZero() || time.Since(cached.at) >= 5*time.Minute {
+		return limits
+	}
+	for _, coin := range cached.coins {
+		if strings.EqualFold(coin.Pair, strings.TrimSpace(symbol)) {
+			limits.EntryPolicy = core.EntryAI500TrendLong
+			break
+		}
+	}
+	return limits
 }
 
 func (s *Server) handlePlanningAI500(c *gin.Context) {

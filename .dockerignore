@@ -34,6 +34,7 @@ docs/
 
 # Runtime data
 data/
+artifacts/
 .env
 .env.*
 !.env.example

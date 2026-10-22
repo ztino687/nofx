@@ -42,6 +42,9 @@ export function PlanFunding({
         {plan.constraints.planning_only && (
           <small>Equity preview · refresh before trading</small>
         )}
+        {plan.constraints.entry_policy === 'ai500_trend_long' && (
+          <small>AI500 · Long only</small>
+        )}
       </div>
     )
   return (
@@ -66,6 +69,11 @@ export function PlanFunding({
           </strong>
         </div>
       </div>
+      {plan.constraints.entry_policy === 'ai500_trend_long' && (
+        <p>
+          AI500 · Long entries only. Each entry method is assessed separately.
+        </p>
+      )}
       {plan.constraints.planning_only ? (
         <p>
           Equity preview only: no free margin was available. Amounts use account

@@ -15,6 +15,8 @@ export interface PlanBatch {
   id: string
   ids: string[]
   created: string
+  waiting?: boolean
+  deferred?: { kind: string; reason: string }[]
 }
 
 export function workspaceKey(account: string, venue: string, symbol: string) {
@@ -34,6 +36,19 @@ export function readBatch(key: string): PlanBatch | null {
     return batch &&
       typeof batch.id === 'string' &&
       typeof batch.created === 'string' &&
+      (batch.waiting === undefined || typeof batch.waiting === 'boolean') &&
+      (batch.deferred === undefined ||
+        (Array.isArray(batch.deferred) &&
+          batch.deferred.length <= 4 &&
+          batch.deferred.every(
+            (entry: { kind?: unknown; reason?: unknown } | null) =>
+              entry &&
+              ['market', 'limit', 'ladder', 'twap'].includes(
+                String(entry.kind)
+              ) &&
+              typeof entry.reason === 'string' &&
+              entry.reason.length <= 2000
+          ))) &&
       Array.isArray(batch.ids) &&
       batch.ids.every((id: unknown) => typeof id === 'string')
       ? batch

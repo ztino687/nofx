@@ -42,6 +42,7 @@ export interface Idea {
   }
 }
 export interface Constraints {
+  entry_policy?: 'ai500_trend_long'
   planning_only?: boolean
   leverage?: number
   available_margin?: string

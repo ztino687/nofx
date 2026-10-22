@@ -33,6 +33,18 @@ export function recordActivity(
   now = Date.now()
 ): ActivityItem[] {
   const d = event.data
+  if (event.type === 'entry_policy')
+    return [
+      ...items.filter((item) => item.id !== 'entry_policy'),
+      {
+        id: 'entry_policy',
+        label: 'AI500 · Long-only planning',
+        detail: String(d.message),
+        state: 'done' as const,
+        started: now,
+        ended: now,
+      },
+    ]
   if (event.type === 'planning_sizing')
     return [
       ...items.filter((item) => item.id !== 'planning_sizing'),
@@ -179,7 +191,10 @@ export function recordActivity(
   if (event.type === 'candidate_start' || event.type === 'candidate_result')
     return upsert(endModels(items), {
       id: String(d.id),
-      label: `${structureNames[String(d.kind)] || 'Candidate'} · ${String(d.name)}`,
+      label:
+        d.status === 'deferred'
+          ? `${structureNames[String(d.kind)] || 'Entry'} · Wait`
+          : `${structureNames[String(d.kind)] || 'Candidate'} · ${String(d.name)}`,
       state:
         event.type === 'candidate_start'
           ? 'running'
@@ -196,14 +211,25 @@ export function recordActivity(
             ? 'Already saved; duplicate skipped'
             : 'Passed mathematical validation',
     })
-  if (event.type === 'plans')
+  if (event.type === 'plans') {
+    const count = Array.isArray(d.plans) ? d.plans.length : 0
+    const deferred = Array.isArray(d.checks)
+      ? d.checks.filter((check) => check.status === 'deferred').length
+      : 0
     return upsert(items, {
       id: `save_${items.filter((row) => row.id.startsWith('save_')).length}`,
-      label: 'Save validated drafts',
+      label: d.waiting
+        ? 'Waiting for entry conditions'
+        : count
+          ? 'Save validated drafts'
+          : 'No new drafts',
       state: 'done',
       ended: now,
-      detail: `${Array.isArray(d.plans) ? d.plans.length : 0} new drafts · ${Array.isArray(d.rejected) ? d.rejected.length : 0} rejected candidates · no orders submitted`,
+      detail: d.waiting
+        ? `${deferred} entry types waiting · no orders submitted`
+        : `${count} new drafts${deferred ? ` · ${deferred} entry types waiting` : ''} · ${Array.isArray(d.rejected) ? d.rejected.length : 0} rejected candidates · no orders submitted`,
     })
+  }
   if (
     event.type === 'outcome' ||
     event.type === 'error' ||
@@ -230,7 +256,9 @@ export function recordActivity(
           ? 'Planning interrupted'
           : event.type === 'cancelled'
             ? 'Planning stopped'
-            : 'Planning complete',
+            : d.waiting && d.stop_reason === 'completed'
+              ? 'Waiting for an entry'
+              : 'Planning complete',
       state: event.type === 'error' ? 'failed' : 'done',
       ended: now,
       detail:
@@ -238,7 +266,11 @@ export function recordActivity(
           ? String(d.message)
           : event.type === 'cancelled'
             ? 'Saved drafts remain available. No orders were submitted.'
-            : `${d.drafts || 0} drafts saved · awaiting your review`,
+            : Number(d.drafts) > 0
+              ? `${d.drafts} drafts saved · awaiting your review`
+              : d.waiting
+                ? 'No order to approve. Review the entry conditions below.'
+                : 'No drafts saved. Review the explanation; no orders submitted.',
     })
   }
   return items

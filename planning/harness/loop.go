@@ -67,11 +67,15 @@ type outcome struct {
 	Drafts     int      `json:"drafts"`
 	Rejections []string `json:"rejections"`
 	StopReason string   `json:"stop_reason"`
+	Waiting    bool     `json:"waiting,omitempty"`
 }
 
 func (o outcome) summary() string {
 	if o.Drafts > 0 {
 		return fmt.Sprintf("Saved %d unapproved drafts. Review the chart and child orders; separate explicit approval is required to execute.", o.Drafts)
+	}
+	if o.Waiting {
+		return "No new entry selected. Review the conditions to watch for each entry type. No orders were submitted."
 	}
 	text := "No trade plan passed validation. No trade will be placed."
 	if len(o.Rejections) > 0 {

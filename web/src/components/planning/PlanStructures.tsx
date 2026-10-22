@@ -49,6 +49,7 @@ export function PlanStructures({
         .filter(
           (kind) =>
             showAllTypes ||
+            checks.some((check) => check.kind === kind) ||
             plans.some((plan) => plan.idea.execution.kind === kind)
         )
         .map((kind) => {
@@ -78,11 +79,13 @@ export function PlanStructures({
                     ? stale
                       ? 'Refresh before trading'
                       : 'Validated draft'
-                    : check?.status === 'rejected'
-                      ? 'Not feasible'
-                      : busy
-                        ? 'Evaluating'
-                        : 'Not proposed'}
+                    : check?.status === 'deferred'
+                      ? 'Wait for entry'
+                      : check?.status === 'rejected'
+                        ? 'Not feasible'
+                        : busy
+                          ? 'Evaluating'
+                          : 'Not proposed'}
                 </span>
               </header>
               {plan ? (

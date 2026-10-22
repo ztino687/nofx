@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm/logger"
 	"net/http/httptest"
 	"nofx/crypto"
+	"nofx/planning/core"
 	"nofx/planning/plugins"
 	"nofx/store"
 	"path/filepath"
@@ -75,5 +76,23 @@ func TestPlanningAI500PaidCacheAndUserIsolation(t *testing.T) {
 	}
 	if reads["alice-fixture-key"] != 1 || reads["bob-fixture-key"] != 1 {
 		t.Fatal("paid requests replayed or crossed user scope", reads)
+	}
+	for _, tc := range []struct {
+		user, venue, symbol, group string
+		restricted                 bool
+	}{
+		{"alice", "binance", "ETHUSDT", "", true},
+		{"alice", "binance", "XMRUSDT", "", false},
+		{"bob", "binance", "ETHUSDT", "", false},
+		{"alice", "hyperliquid", "ETH", "", false},
+		{"alice", "binance", "QUSDT", "ai500", true},
+	} {
+		limits := p.planningEntryPolicy(tc.user, tc.venue, tc.symbol, tc.group, core.Constraints{})
+		if (limits.EntryPolicy == core.EntryAI500TrendLong) != tc.restricted {
+			t.Fatalf("unexpected entry policy for %+v: %+v", tc, limits)
+		}
+	}
+	if reads["alice-fixture-key"] != 1 || reads["bob-fixture-key"] != 1 {
+		t.Fatal("entry policy caused another paid request")
 	}
 }

@@ -15,6 +15,7 @@ export function PlanningAI500({
   walletReady = true,
   walletChecking = false,
   onSetup,
+  onMarkets,
 }: {
   venue: string
   onSelect: (symbol: string) => void
@@ -23,6 +24,7 @@ export function PlanningAI500({
   walletReady?: boolean
   walletChecking?: boolean
   onSetup?: () => void
+  onMarkets?: (symbols: string[]) => void
 }) {
   const [board, setBoard] = useState<Board | null>(null)
   const [error, setError] = useState('')
@@ -43,7 +45,10 @@ export function PlanningAI500({
           )
         )
           throw new Error('Invalid AI500 response')
-        if (current) setBoard(v)
+        if (current) {
+          setBoard(v)
+          onMarkets?.(v.coins.map((coin) => coin.pair))
+        }
       })
       .catch((e) => {
         if (current) setError(formatRequestError(e, 'en'))
@@ -54,7 +59,7 @@ export function PlanningAI500({
     return () => {
       current = false
     }
-  }, [venue, revision, walletReady])
+  }, [venue, revision, walletReady, onMarkets])
   if (venue !== 'binance') return null
   const coins =
     board?.coins.filter((v) =>
@@ -65,6 +70,7 @@ export function PlanningAI500({
       <div>
         <b>AI500</b>
         <small>Claw402 paid data · cached 5 min</small>
+        <small>Long entries · market or pullback opportunities</small>
         <input
           aria-label="Search AI500"
           placeholder="Search AI500 markets"

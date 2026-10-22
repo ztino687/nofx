@@ -30,6 +30,7 @@ export function FrontierMarkets({
   walletChecking,
   onSetup,
   onSelect,
+  onAI500Markets,
 }: {
   venue: string
   selected: string
@@ -38,6 +39,7 @@ export function FrontierMarkets({
   walletChecking: boolean
   onSetup: () => void
   onSelect: (symbol: string) => void
+  onAI500Markets?: (symbols: string[]) => void
 }) {
   const [mode, setMode] = useState(venue === 'binance' ? 'ai500' : 'volume')
   const [board, setBoard] = useState<Board | null>(null)
@@ -153,6 +155,7 @@ export function FrontierMarkets({
           walletChecking={walletChecking}
           onSetup={onSetup}
           onSelect={onSelect}
+          onMarkets={onAI500Markets}
         />
       ) : (
         <>

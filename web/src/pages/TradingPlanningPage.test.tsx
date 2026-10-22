@@ -373,6 +373,108 @@ it('account review does not restart model activity or show a planning stop butto
   await screen.findByRole('dialog')
 })
 
+it.each([true, false])(
+  'archives the previous batch only for an explicit wait decision (%s)',
+  async (waiting) => {
+    mocks.stream.mockImplementation(async (_input, _signal, emit) => {
+      if (waiting) emit({ type: 'plans', data: { plans: [], waiting: true } })
+      emit({
+        type: 'assistant',
+        data: {
+          message: waiting
+            ? 'Wait for a confirmed uptrend.'
+            : 'Here is the market context.',
+        },
+      })
+      emit({ type: 'outcome', data: { drafts: 0, stop_reason: 'completed' } })
+    })
+    open()
+    await screen.findByRole('button', { name: /Test plan one/ })
+    const generate = screen.getByRole('button', { name: 'Generate plans' })
+    fireEvent.click(generate)
+    await waitFor(() => expect(mocks.stream).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(generate).toBeEnabled())
+    expect(
+      JSON.parse(localStorage.getItem('frontier-batch-v1//ex/binance/BTCUSDT')!)
+        .ids
+    ).toEqual(waiting ? [] : ['one', 'two'])
+    if (waiting) {
+      expect(screen.getByText('Plan history · 2')).toBeInTheDocument()
+      expect(
+        screen.getByRole('heading', { name: 'Waiting for an entry' })
+      ).toBeInTheDocument()
+    }
+  }
+)
+
+it('includes the AI500 policy only when the current Binance market is on the board', async () => {
+  const base = mocks.api.getMockImplementation()!
+  mocks.api.mockImplementation((path: string) =>
+    path === 'ai500'
+      ? Promise.resolve({
+          coins: [{ pair: 'BTCUSDT', score: 85 }],
+          fetched_at: new Date().toISOString(),
+        })
+      : base(path)
+  )
+  open()
+  await screen.findByRole('button', { name: /BTC 85/ })
+  fireEvent.click(screen.getByRole('button', { name: 'Generate plans' }))
+  await waitFor(() => expect(mocks.stream).toHaveBeenCalledTimes(1))
+  expect(mocks.stream.mock.calls[0][0]).toMatchObject({
+    market_group: 'ai500',
+    constraints: { entry_policy: 'ai500_trend_long' },
+  })
+})
+
+it('moves older AI500 short drafts to history without offering review', async () => {
+  const base = mocks.api.getMockImplementation()!
+  mocks.api.mockImplementation(async (path: string) => {
+    if (path === 'ai500')
+      return {
+        coins: [{ pair: 'BTCUSDT', score: 85 }],
+        fetched_at: new Date().toISOString(),
+      }
+    const result = await base(path)
+    if (path === 'state') result.records.one.plan.idea.side = 'short'
+    return result
+  })
+  open()
+  await screen.findByRole('button', { name: /BTC 85/ })
+  expect(screen.getByRole('button', { name: /Test plan one/ })).toBeDisabled()
+  expect(
+    screen.getByText('Outside AI500 long-only policy · generate a new plan')
+  ).toBeInTheDocument()
+  expect(screen.getByText('Plan history · 1')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Review Market' })).toBeNull()
+})
+
+it('restores the reasons for waiting after the page is reloaded', async () => {
+  const deferred = ['market', 'limit', 'ladder', 'twap'].map((kind) => ({
+    kind,
+    reason: `${kind}: waiting for a supported entry.`,
+  }))
+  localStorage.setItem(
+    'frontier-batch-v1//ex/binance/BTCUSDT',
+    JSON.stringify({
+      id: 'wait-turn',
+      ids: [],
+      created: new Date().toISOString(),
+      waiting: true,
+      deferred,
+    })
+  )
+  open()
+  await screen.findByRole('heading', { name: 'Waiting for an entry' })
+  expect(screen.getAllByText('Wait for entry')).toHaveLength(4)
+  for (const entry of deferred)
+    expect(screen.getByText(entry.reason)).toBeInTheDocument()
+  expect(
+    screen.getByRole('link', { name: 'View entry conditions →' })
+  ).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Review Market' })).toBeNull()
+})
+
 it('opens setup before a paid request and retains the original idea when AI is missing', async () => {
   mocks.models = []
   open()
